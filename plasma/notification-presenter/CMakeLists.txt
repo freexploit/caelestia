@@ -9,6 +9,9 @@ include(KDEInstallDirs)
 include(KDECMakeSettings)
 include(KDECompilerSettings NO_POLICY_SCOPE)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui DBus Qml Quick)
+# PW::LibNotificationManager's link interface references KF6::ConfigCore, which
+# is only created by this find_package; Plasma 6.6 does not do it transitively.
+find_package(KF6 6.0 REQUIRED COMPONENTS Config)
 find_package(Plasma 6.6 REQUIRED)
 find_package(LibNotificationManager 6.6 REQUIRED)
 
