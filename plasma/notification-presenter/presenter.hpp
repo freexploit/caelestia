@@ -25,7 +25,7 @@ public:
     Q_INVOKABLE void checkPresentation();
     Q_INVOKABLE void policyUpdated();
 
-public slots:
+public Q_SLOTS:
     Q_SCRIPTABLE QVariantMap Snapshot();
     Q_SCRIPTABLE bool Acquire();
     Q_SCRIPTABLE bool Release();
@@ -36,7 +36,7 @@ public slots:
     Q_SCRIPTABLE QVariantList Existing();
     Q_SCRIPTABLE bool Eligible(uint id);
 
-signals:
+Q_SIGNALS:
     void leasedChanged();
     Q_SCRIPTABLE void PolicyChanged();
 

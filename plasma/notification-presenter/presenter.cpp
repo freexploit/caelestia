@@ -6,6 +6,7 @@
 #include <QDBusReply>
 #include <QImage>
 #include <QJSValue>
+#include <QObject>
 #include <KPluginFactory>
 #include <QScopedValueRollback>
 #include <QUrl>
@@ -106,21 +107,21 @@ bool NotificationPresenter::Acquire() {
         return isOwner() && !m_instantiator->property("active").toBool();
     if (!m_instantiator->property("active").toBool()) {
         m_error = QStringLiteral("Native notification instantiator was already disabled by another owner");
-        emit PolicyChanged();
+        Q_EMIT PolicyChanged();
         return false;
     }
     QScopedValueRollback<bool> changing(m_changing, true);
     m_previousActive = m_instantiator->property("active").toBool();
     m_owner = message().service();
     m_watcher.addWatchedService(m_owner);
-    emit leasedChanged(); // Synchronous, non-delayed QML Binding applies here.
+    Q_EMIT leasedChanged(); // Synchronous, non-delayed QML Binding applies here.
     if (m_instantiator->property("active").toBool()) {
         releaseLease();
         m_error = QStringLiteral("The scoped QML popup binding did not become effective");
-        emit PolicyChanged();
+        Q_EMIT PolicyChanged();
         return false;
     }
-    emit PolicyChanged();
+    Q_EMIT PolicyChanged();
     return true;
 }
 
@@ -147,11 +148,11 @@ bool NotificationPresenter::releaseLease() {
         m_historyModel->startTimeout(id);
     }
     m_presented.clear();
-    emit leasedChanged(); // Binding restores the original value/binding.
+    Q_EMIT leasedChanged(); // Binding restores the original value/binding.
     const bool restored = m_instantiator && m_instantiator->property("active").toBool() == m_previousActive;
     if (!restored)
         m_error = QStringLiteral("Original Plasma popup binding was not restored");
-    emit PolicyChanged();
+    Q_EMIT PolicyChanged();
     return restored;
 }
 
@@ -166,7 +167,7 @@ void NotificationPresenter::checkPresentation() {
 
 void NotificationPresenter::policyUpdated() {
     if (m_registered)
-        emit PolicyChanged();
+        Q_EMIT PolicyChanged();
 }
 
 void NotificationPresenter::watchdog() {
@@ -251,7 +252,7 @@ QVariantMap NotificationPresenter::describe(const QModelIndex& index) {
     const auto labels = index.data(N::ActionLabelsRole).toStringList();
     if (names.size() != labels.size()) {
         m_error = QStringLiteral("Plasma notification action names/labels do not match");
-        emit PolicyChanged();
+        Q_EMIT PolicyChanged();
         return {};
     }
     for (qsizetype i = 0; i < names.size(); ++i)
@@ -261,7 +262,7 @@ QVariantMap NotificationPresenter::describe(const QModelIndex& index) {
     QByteArray imagePng;
     if (index.data(N::HasReplyActionRole).toBool()) {
         m_error = QStringLiteral("Inline-reply notifications require a reply-capable Caelestia UI");
-        emit PolicyChanged();
+        Q_EMIT PolicyChanged();
         return {};
     }
     const QImage image = qvariant_cast<QImage>(index.data(N::ImageRole));
@@ -270,7 +271,7 @@ QVariantMap NotificationPresenter::describe(const QModelIndex& index) {
         buffer.open(QIODevice::WriteOnly);
         if (!image.save(&buffer, "PNG")) {
             m_error = QStringLiteral("Cannot encode authoritative Plasma notification image");
-            emit PolicyChanged();
+            Q_EMIT PolicyChanged();
             return {};
         }
     }
