@@ -72,6 +72,7 @@ in stdenv.mkDerivation {
         --set CAELESTIA_INSTALL_KIND package \
         --set CAELESTIA_BIN_DIR "$out/bin" \
         --set CAELESTIA_LIB_DIR "$out/lib/caelestia" \
+        --set CAELESTIA_ACTIVITIES_LIB "$out/lib/caelestia" \
         --set CAELESTIA_DATA_DIR "$out/share/caelestia" \
         --set CAELESTIA_SHELL_CONFIG "$out/share/caelestia/shell/shell.qml" \
         --set CAELESTIA_CAPTURE_LIB "$out/lib/caelestia" \
