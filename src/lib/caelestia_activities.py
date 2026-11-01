@@ -174,8 +174,27 @@ class Coordinator:
         return json.loads(widget["settings"]).get("stockPanelSettings", {}).get("visible", None)
 
     async def set_visibility(self, panel, widget, value):
-        service = f"luisbocanegra.panel.colorizer.c{panel}.w{widget}"
-        await self.call(service, "/preset", service, "property", "s", ["stockPanelSettings.visible " + json.dumps(value, separators=(",", ":"))])
+        # Some Panel Colorizer releases ship without the DBusSignalMonitor
+        # component, so the property signal never reaches the widget. Write the
+        # colorizer's own config instead and verify it through the same read
+        # path the coordinator uses everywhere else.
+        script = '''(function(){
+            var ps = panels();
+            for (var i = 0; i < ps.length; i++) {
+                if (ps[i].id !== %d) continue;
+                var ws = ps[i].widgets();
+                for (var j = 0; j < ws.length; j++) {
+                    if (ws[j].id !== %d) continue;
+                    ws[j].currentConfigGroup = ["General"];
+                    var g = JSON.parse(ws[j].readConfig("globalSettings", "{}"));
+                    g.stockPanelSettings = g.stockPanelSettings || {};
+                    g.stockPanelSettings.visible = %s;
+                    ws[j].writeConfig("globalSettings", JSON.stringify(g));
+                }
+            }
+            print("ok");
+        })()''' % (int(panel), int(widget), json.dumps(value, separators=(",", ":")))
+        await self.call("org.kde.plasmashell", "/PlasmaShell", "org.kde.PlasmaShell", "evaluateScript", "s", [script])
         deadline = asyncio.get_running_loop().time() + 5
         while asyncio.get_running_loop().time() < deadline:
             for current in await self.panels():
@@ -194,8 +213,6 @@ class Coordinator:
             if len(panel["widgets"]) != 1:
                 raise RuntimeError(f"Panel {panel['id']} requires exactly one supported Panel Colorizer widget")
             widget = panel["widgets"][0]
-            if not widget["service"] or not widget["enabled"]:
-                raise RuntimeError("Panel Colorizer and its D-Bus service must be enabled")
             autoload = json.loads(widget["autoload"])
             if autoload.get("enabled", False):
                 raise RuntimeError("Panel Colorizer preset auto-loading must be disabled before managed coexistence")
