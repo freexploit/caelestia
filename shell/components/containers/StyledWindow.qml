@@ -11,7 +11,12 @@ PanelWindow {
     required property string name
 
     property bool isDesktopWidget: false
-    WlrLayershell.namespace: isDesktopWidget ? "desktop" : "panel"
+    // KWin maps a layer surface's namespace to a window type. "dock"/"desktop"
+    // windows are placed on all virtual desktops; anything else (including
+    // "panel") is pinned to the desktop where it was created, which also pins
+    // its strut there.
+    property string layerNamespace: isDesktopWidget ? "desktop" : "panel"
+    WlrLayershell.namespace: layerNamespace
 
     color: "transparent"
 
