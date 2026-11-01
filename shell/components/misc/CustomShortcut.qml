@@ -1,0 +1,47 @@
+import QtQuick
+import Quickshell
+import Quickshell.Hyprland as Hypr
+import Caelestia.Services as Caelestia
+import qs.services
+
+Loader {
+    id: root
+
+    property string name: ""
+    property string description: ""
+    property string key: ""
+    property bool enabled: true
+
+    signal pressed()
+    signal released()
+
+    active: root.enabled && (!ManagedSession.managed || ManagedSession.surfaceActive)
+
+    sourceComponent: Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") ? hyprShortcut : kdeShortcut
+
+    Component {
+        id: hyprShortcut
+
+        Hypr.GlobalShortcut {
+            appid: "caelestia"
+            name: root.name
+            description: root.description
+            onPressed: root.pressed()
+            onReleased: root.released()
+        }
+    }
+
+    Component {
+        id: kdeShortcut
+
+        Caelestia.GlobalShortcut {
+            name: root.name
+            key: root.key
+            description: root.description
+            onActivated: {
+                root.pressed()
+                root.released()
+            }
+        }
+    }
+}
