@@ -345,7 +345,15 @@ Item {
                 widget[name] = context[name];
     }
 
-    Component.onCompleted: Logger.mark("bar-ready")
+    Component.onCompleted: {
+        // ManagedSession's readiness gate needs a constructed per-screen root.
+        // The bar is the first surface each screen creates; publish it before
+        // marking readiness.
+        const components = ShellState.componentsFor(screen);
+        if (components)
+            components.rootWindow = root;
+        Logger.mark("bar-ready");
+    }
 
     clip: true
 
