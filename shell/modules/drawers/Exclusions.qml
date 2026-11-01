@@ -59,6 +59,10 @@ Scope {
     component ExclusionZone: StyledWindow {
         screen: root.screen
         name: "border-exclusion"
+        // Must be a dock: a normal layer surface is pinned to the desktop it
+        // was created on, so its strut would not reserve space on other
+        // virtual desktops and XWayland windows would sit under the bar.
+        layerNamespace: "dock"
         exclusiveZone: Config.border.thickness
         mask: Region {}
         implicitWidth: 1
