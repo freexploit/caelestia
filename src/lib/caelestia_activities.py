@@ -322,9 +322,9 @@ class Coordinator:
         deadline = asyncio.get_running_loop().time() + self.config.get("startupTimeout", 30)
         while True:
             if self.process.returncode is not None:
-                raise RuntimeError("Caelestia exited during startup")
+                raise EntryFailure("Caelestia exited during startup", transient=True)
             if await self.current() != self.target:
-                raise RuntimeError("Activity changed during shell entry")
+                raise EntryFailure("Activity changed during shell entry", transient=True)
             try:
                 status = await self.ipc("status")
                 if status.get("ready") and status.get("activity") == self.target:
@@ -332,10 +332,12 @@ class Coordinator:
             except (RuntimeError, asyncio.TimeoutError, json.JSONDecodeError):
                 pass
             if asyncio.get_running_loop().time() >= deadline:
-                raise RuntimeError("Caelestia did not reach managed readiness")
+                # The notification bridge registers against a plasmashell that
+                # may still be starting; a fresh shell process can succeed.
+                raise EntryFailure("Caelestia did not reach managed readiness", transient=True)
             await asyncio.sleep(0.1)
         if not await self.ipc("commit"):
-            raise RuntimeError("Notification/surface commit failed")
+            raise EntryFailure("Notification/surface commit failed", transient=True)
         await self.check_shortcuts()
         for panel in panels:
             widget = panel["widgets"][0]
