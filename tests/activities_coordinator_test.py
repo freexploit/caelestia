@@ -166,6 +166,32 @@ class CoordinatorTest(unittest.IsolatedAsyncioTestCase):
         coordinator.reset_retry()
         self.assertTrue(coordinator.retry_ready())
 
+    async def test_shell_readiness_failure_is_transient(self):
+        coordinator = self.module.Coordinator({
+            "shellCommand": ["/bin/true"], "startupTimeout": 0, "trackerRequired": False,
+        })
+        coordinator.target = "22222222-2222-4222-8222-222222222222"
+
+        async def preflight():
+            return []
+
+        async def current():
+            return coordinator.target
+
+        async def ipc(_method):
+            return {"ready": False, "activity": coordinator.target}
+
+        with mock.patch.object(coordinator, "preflight", preflight), \
+             mock.patch.object(coordinator, "current", current), \
+             mock.patch.object(coordinator, "ipc", ipc), \
+             mock.patch.object(self.module.asyncio, "create_subprocess_exec",
+                               mock.AsyncMock(return_value=FakeProcess())):
+            with self.assertRaises(self.module.EntryFailure) as context:
+                await coordinator.enter()
+
+        self.assertTrue(context.exception.transient,
+            "a shell that missed plasmashell startup must be retried without an Activity change")
+
     async def test_service_wake_during_failure_keeps_retry_alive(self):
         coordinator = self.coordinator
         coordinator.record_failure(RuntimeError("org.kde.plasmashell.evaluateScript: Remote peer disconnected"))
