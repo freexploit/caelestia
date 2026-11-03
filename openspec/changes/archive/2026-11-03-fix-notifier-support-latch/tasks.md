@@ -34,8 +34,8 @@
 
 - [x] 5.1 Document the inline-reply degradation (notification is shown without reply; the bridge stays alive) in the module comments for the presenter and `shell/services/Notifs.qml`.
 - [x] 5.2 Note the behavior change in the change's proposal/design if any of the open questions are resolved during implementation.
-- [ ] 5.3 After merge: bump the `caelestia-kde` input pin in `~/.config/home-manager`, run `home-manager switch`, restart `plasma-plasmashell` once, and restart `caelestia-activities.service`.
-- [ ] 5.4 Verify live: `Snapshot` reports `supported: true` with no `error`; entering the Caelestia Activity yields `state: caelestia` and an error-free journal; a Slack/Beeper notification no longer disables the bridge.
+- [x] 5.3 After merge: bump the `caelestia-kde` input pin in `~/.config/home-manager`, run `home-manager switch`, restart `plasma-plasmashell` once, and restart `caelestia-activities.service`.
+- [x] 5.4 Verify live: `Snapshot` reports `supported: true` with no `error`; entering the Caelestia Activity yields `state: caelestia` and an error-free journal; a Slack/Beeper notification no longer disables the bridge.
 - [ ] 5.5 Confirm the Plasma DND setting that makes `inhibited: true` (until 2027-01-20) is intentional; document it as unrelated to this fix.
 - [ ] 5.6 Correct the stale `("Default", pre-existing)` label in `~/.config/home-manager/caelestia.nix` to the verified name `Another`, keep UUID `58866ae6-d479-4752-9546-0af404bd48d0`, and state that Activity display names are not used for resolution.
 - [x] 5.7 Re-verify the mapping before rollout: `kactivitymanagerdrc` shows baseline `58866ae6…` and target `79a4e569…` (`Caelestia`); containments 415/416 belong to baseline, 479/480 to Caelestia and each carry `org.caelestia.notification-presenter`; panels 485/511 have an empty `activityId` (global), so the Panel Colorizer hiding path is still required.

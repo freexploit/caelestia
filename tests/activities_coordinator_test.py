@@ -166,6 +166,21 @@ class CoordinatorTest(unittest.IsolatedAsyncioTestCase):
         coordinator.reset_retry()
         self.assertTrue(coordinator.retry_ready())
 
+    async def test_service_wake_during_failure_keeps_retry_alive(self):
+        coordinator = self.coordinator
+        coordinator.record_failure(RuntimeError("org.kde.plasmashell.evaluateScript: Remote peer disconnected"))
+        self.assertFalse(coordinator.retry_ready())
+
+        # plasmashell's NameOwnerChanged arrives while the failure is recorded.
+        coordinator.wake_serial += 1
+        coordinator.consume_wake_resets()
+        self.assertTrue(coordinator.retry_ready(), "a service restart must survive a persistent failure latch")
+
+        # A serial with no new event must not invent a retry.
+        coordinator.record_failure(RuntimeError("still broken"))
+        coordinator.consume_wake_resets()
+        self.assertFalse(coordinator.retry_ready())
+
     async def test_recover_accepts_version1_journal_with_stale_error(self):
         self.journal_path.parent.mkdir(parents=True, exist_ok=True)
         self.journal_path.write_text(json.dumps({

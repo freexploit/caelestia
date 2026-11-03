@@ -5,9 +5,11 @@
 // failures; a single notification must never latch the bridge off.
 
 #include <QBuffer>
+#include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QDBusReply>
+#include <QDBusVariant>
 #include <QImage>
 #include <QJSValue>
 #include <QLoggingCategory>
@@ -20,6 +22,44 @@ namespace {
 Q_LOGGING_CATEGORY(lcPresenter, "caelestia.notification-presenter")
 const QString service = QStringLiteral("org.caelestia.PlasmaNotifications");
 const QString path = QStringLiteral("/org/caelestia/PlasmaNotifications");
+
+// A notification hint can hold a QDBusVariant wrapping an invalid QVariant.
+// Marshalling that into the Describe() reply aborts the whole process inside
+// libdbus, so unwrap what can be represented and drop the rest.
+QVariant sanitizeVariant(const QVariant& value) {
+    if (!value.isValid())
+        return {};
+    const auto type = value.metaType();
+    if (type == QMetaType::fromType<QDBusVariant>())
+        return sanitizeVariant(value.value<QDBusVariant>().variant());
+    if (type == QMetaType::fromType<QVariantList>()) {
+        QVariantList list;
+        for (const QVariant& item : value.toList()) {
+            const QVariant clean = sanitizeVariant(item);
+            if (clean.isValid())
+                list.append(clean);
+        }
+        return list;
+    }
+    if (type == QMetaType::fromType<QVariantMap>()) {
+        QVariantMap map;
+        const QVariantMap source = value.toMap();
+        for (auto it = source.cbegin(); it != source.cend(); ++it) {
+            const QVariant clean = sanitizeVariant(it.value());
+            if (clean.isValid())
+                map.insert(it.key(), clean);
+            else
+                qCWarning(lcPresenter) << "dropping unrepresentable hint" << it.key();
+        }
+        return map;
+    }
+    if (type == QMetaType::fromType<QDBusArgument>()) {
+        qCWarning(lcPresenter) << "dropping opaque D-Bus argument";
+        return {};
+    }
+    return value;
+}
+
 QObject* objectProperty(QObject* object, const char* property) {
     const QVariant value = object->property(property);
     if (value.metaType() == QMetaType::fromType<QJSValue>())
@@ -277,7 +317,7 @@ QVariantMap NotificationPresenter::describe(const QModelIndex& index) {
     }
     if (index.data(N::HasReplyActionRole).toBool() && !degraded.contains(QStringLiteral("inline-reply omitted")))
         degraded.append(QStringLiteral("inline-reply omitted"));
-    QVariantMap hints = index.data(N::HintsRole).toMap();
+    QVariantMap hints = sanitizeVariant(index.data(N::HintsRole)).toMap();
     const int urgency = index.data(N::UrgencyRole).toInt();
     QByteArray imagePng;
     const QImage image = qvariant_cast<QImage>(index.data(N::ImageRole));
@@ -291,7 +331,8 @@ QVariantMap NotificationPresenter::describe(const QModelIndex& index) {
     }
     if (!degraded.isEmpty())
         qCWarning(lcPresenter).nospace() << "notification " << id << " degraded: " << degraded.join(QStringLiteral("; "));
-    return {{QStringLiteral("id"), id}, {QStringLiteral("replacesId"), id},
+    QVariantMap description = {
+            {QStringLiteral("id"), id}, {QStringLiteral("replacesId"), id},
             {QStringLiteral("summary"), index.data(N::SummaryRole)}, {QStringLiteral("body"), index.data(N::BodyRole)},
             {QStringLiteral("appName"), index.data(N::ApplicationNameRole)},
             {QStringLiteral("appIcon"), index.data(N::ApplicationIconNameRole)},
@@ -303,6 +344,17 @@ QVariantMap NotificationPresenter::describe(const QModelIndex& index) {
             {QStringLiteral("resident"), index.data(N::ResidentRole)},
             {QStringLiteral("expired"), index.data(N::ExpiredRole)},
             {QStringLiteral("hasActionIcons"), hints.value(QStringLiteral("action-icons"), false)}};
+    for (auto it = description.begin(); it != description.end();) {
+        const QVariant clean = sanitizeVariant(it.value());
+        if (clean.isValid()) {
+            *it = clean;
+            ++it;
+        } else {
+            qCWarning(lcPresenter) << "notification" << id << "dropped unrepresentable field" << it.key();
+            it = description.erase(it);
+        }
+    }
+    return description;
 }
 
 QVariantMap NotificationPresenter::Describe(uint id) {
