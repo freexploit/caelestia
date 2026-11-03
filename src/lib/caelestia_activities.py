@@ -93,6 +93,8 @@ class Coordinator:
         self.retry_index = 0
         self.retry_at = 0.0
         self.failure = None
+        self.wake_serial = 0
+        self.seen_serial = 0
         self.journal = {"version": 1, "state": "baseline", "panels": [], "meta": None, "trackerOwned": False}
         if self.journal_path.exists():
             self.journal = json.loads(self.journal_path.read_text())
@@ -121,6 +123,13 @@ class Coordinator:
         self.failure = None
         self.retry_index = 0
         self.retry_at = 0.0
+
+    def consume_wake_resets(self):
+        # A service restart can arrive while a failure is being recorded. The
+        # serial survives that overwrite, so the next loop pass still retries.
+        if self.wake_serial != self.seen_serial:
+            self.seen_serial = self.wake_serial
+            self.reset_retry()
 
     def retry_ready(self):
         return self.failure is None or self.retry_at <= asyncio.get_running_loop().time()
@@ -159,11 +168,13 @@ class Coordinator:
             return
         if message.interface == ACTIVITY_IFACE and message.member == "CurrentActivityChanged":
             self.desired = message.body[0]
+            self.wake_serial += 1
             self.reset_retry()
             self.wake.set()
         elif message.interface == "org.freedesktop.DBus" and message.member == "NameOwnerChanged":
             name, old, new = message.body
             if name in [ACTIVITY_SERVICE, "org.kde.plasmashell", "org.kde.KWin", PRESENTER_SERVICE]:
+                self.wake_serial += 1
                 self.reset_retry()
                 self.wake.set()
 
@@ -394,6 +405,7 @@ class Coordinator:
         try:
             while not self.stopping:
                 self.wake.clear()
+                self.consume_wake_resets()
                 try:
                     self.desired = await self.current()
                     if self.process and self.process.returncode is not None:
