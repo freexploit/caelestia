@@ -47,6 +47,8 @@ private:
     bool isOwner() const;
     bool releaseLease();
     void watchdog();
+    // Returns a presentation map, or {declined: true, reason} when the row is
+    // unusable. Per-notification degradation never touches m_error.
     QVariantMap describe(const QModelIndex& index);
 
     QPointer<QObject> m_globals;

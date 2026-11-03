@@ -92,6 +92,43 @@ def notifications_case():
         leave()
 
 
+def notifications_reply_case():
+    enter()
+    ROOT.mkdir(parents=True, exist_ok=True)
+    events = ROOT / 'notification-reply-events.jsonl'
+    identifier = ROOT / 'notification-reply-id'
+    after_identifier = ROOT / 'notification-after-reply-id'
+    client = subprocess.Popen(['lab-client', 'notification', '--title', 'Caelestia Lab Reply', '--events', str(events), '--identifier', str(identifier), '--reply'])
+    second = None
+    try:
+        nid = wait_for(lambda: identifier.read_text().strip() if identifier.exists() else None, 'Reply notification creation')
+        item = wait_for(lambda: next((n for n in ipc('notifs', 'snapshot')['notifications'] if n['id'] == nid and n['popup']), None), 'Reply notification popup')
+        assert not any(action['identifier'] == 'inline-reply' for action in item['actions']), 'inline-reply must not be offered by the managed shell'
+        state = ipc('managed', 'status')
+        assert state['ready'] and state['active'], 'Managed bridge dropped after a reply-capable notification'
+        policy = call('org.caelestia.PlasmaNotifications', '/org/caelestia/PlasmaNotifications',
+            'org.caelestia.PlasmaNotifications', 'Snapshot')
+        assert policy['supported'], f'Presenter latched unsupported: {policy}'
+        assert not policy['error'], f'Presenter reported a capability error: {policy}'
+
+        second = subprocess.Popen(['lab-client', 'notification', '--title', 'Caelestia Lab After Reply', '--events', str(events), '--identifier', str(after_identifier)])
+        second_id = wait_for(lambda: after_identifier.read_text().strip() if after_identifier.exists() else None, 'Follow-up notification creation')
+        wait_for(lambda: next((n for n in ipc('notifs', 'snapshot')['notifications'] if n['id'] == second_id), None), 'Follow-up notification delivery')
+
+        stored = journal()
+        assert stored['state'] == 'caelestia', f'Unexpected journal state: {stored}'
+        assert 'error' not in stored, f'Journal kept a stale error: {stored}'
+        return {'scenario': 'notification-reply', 'notification': item, 'policy': policy,
+            'followUpId': second_id, 'journalState': stored['state']}
+    finally:
+        client.terminate()
+        client.wait(timeout=5)
+        if second is not None:
+            second.terminate()
+            second.wait(timeout=5)
+        leave()
+
+
 def capture_case():
     leave()
     tracked = ['kdeglobals', 'kwinrc', 'kglobalshortcutsrc', 'plasma-org.kde.plasma.desktop-appletsrc']
@@ -110,10 +147,11 @@ def capture_case():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('scenario', choices=['panels', 'notifications', 'capture', 'ready'])
+    parser.add_argument('scenario', choices=['panels', 'notifications', 'notifications-reply', 'capture', 'ready'])
     args = parser.parse_args()
     ROOT.mkdir(parents=True, exist_ok=True)
-    result = {'panels': panels_case, 'notifications': notifications_case, 'capture': capture_case, 'ready': ready}[args.scenario]()
+    result = {'panels': panels_case, 'notifications': notifications_case,
+        'notifications-reply': notifications_reply_case, 'capture': capture_case, 'ready': ready}[args.scenario]()
     (ROOT / (args.scenario + '.json')).write_text(json.dumps(result, indent=2))
     print(json.dumps(result, indent=2))
 
