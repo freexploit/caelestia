@@ -20,8 +20,9 @@ if STRICT:
     guest("lab-suite panels")
     machine.screenshot("panels-restored")
     guest("lab-suite notifications")
+    guest("lab-suite notifications-reply")
     guest("lab-suite capture")
     # Full acceptance cannot pass without each material behavior's guest evidence.
-    for scenario in ["work-area-recovery", "keyboard-handoff", "notification-actions", "window-membership", "fresh-restore", "settings-layering", "service-output-recovery"]:
+    for scenario in ["work-area-recovery", "keyboard-handoff", "notification-actions", "notifications-reply", "window-membership", "fresh-restore", "settings-layering", "service-output-recovery"]:
         machine.succeed("test -s /home/lab/.local/state/caelestia-lab/" + scenario + ".json")
     machine.copy_from_vm("/home/lab/.local/state/caelestia-lab", "evidence")

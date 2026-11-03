@@ -249,6 +249,9 @@ Singleton {
         reloadableId: "notifs"
     }
 
+    // Reply-capable notifications (FDO "inline-reply") are delivered without
+    // that action. There is no reply UI, and declining one notification must
+    // never unregister this bridge or latch the presenter off.
     PlasmaNotifications {
         id: plasma
         enabled: root.activityManaged

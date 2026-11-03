@@ -1,17 +1,23 @@
 #include "presenter.hpp"
 
+// Notifications may be degraded per field (inline reply omitted, sender actions
+// omitted, image omitted). Only attach/ownership/lease problems are capability
+// failures; a single notification must never latch the bridge off.
+
 #include <QBuffer>
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
 #include <QDBusReply>
 #include <QImage>
 #include <QJSValue>
+#include <QLoggingCategory>
 #include <QObject>
 #include <KPluginFactory>
 #include <QScopedValueRollback>
 #include <QUrl>
 
 namespace {
+Q_LOGGING_CATEGORY(lcPresenter, "caelestia.notification-presenter")
 const QString service = QStringLiteral("org.caelestia.PlasmaNotifications");
 const QString path = QStringLiteral("/org/caelestia/PlasmaNotifications");
 QObject* objectProperty(QObject* object, const char* property) {
@@ -240,10 +246,14 @@ bool NotificationPresenter::Dismiss(uint id) {
 }
 
 QVariantMap NotificationPresenter::describe(const QModelIndex& index) {
+    // Per-notification data problems degrade this notification only. They must
+    // never change presenter-wide capability state: a single chat notification
+    // requesting inline reply used to latch the whole managed bridge off.
     if (!index.isValid())
-        return {};
+        return {{QStringLiteral("declined"), true}, {QStringLiteral("reason"), QStringLiteral("absent")}};
     using N = NotificationManager::Notifications;
     const uint id = index.data(N::IdRole).toUInt();
+    QStringList degraded;
     QVariantList actions;
     if (index.data(N::HasDefaultActionRole).toBool())
         actions.append(QVariantMap{{QStringLiteral("identifier"), QStringLiteral("default")},
@@ -251,30 +261,36 @@ QVariantMap NotificationPresenter::describe(const QModelIndex& index) {
     const auto names = index.data(N::ActionNamesRole).toStringList();
     const auto labels = index.data(N::ActionLabelsRole).toStringList();
     if (names.size() != labels.size()) {
-        m_error = QStringLiteral("Plasma notification action names/labels do not match");
-        Q_EMIT PolicyChanged();
-        return {};
+        // Keep the default action; sender actions cannot be paired safely.
+        degraded.append(QStringLiteral("action names/labels do not match; sender actions omitted"));
+    } else {
+        for (qsizetype i = 0; i < names.size(); ++i) {
+            if (names.at(i) == QLatin1String("inline-reply")) {
+                // Plasma's reply affordance needs text input the shell does not
+                // render. Exposing it as a button would invoke an action that
+                // expects a reply body.
+                degraded.append(QStringLiteral("inline-reply omitted"));
+                continue;
+            }
+            actions.append(QVariantMap{{QStringLiteral("identifier"), names.at(i)}, {QStringLiteral("text"), labels.at(i)}});
+        }
     }
-    for (qsizetype i = 0; i < names.size(); ++i)
-        actions.append(QVariantMap{{QStringLiteral("identifier"), names.at(i)}, {QStringLiteral("text"), labels.at(i)}});
+    if (index.data(N::HasReplyActionRole).toBool() && !degraded.contains(QStringLiteral("inline-reply omitted")))
+        degraded.append(QStringLiteral("inline-reply omitted"));
     QVariantMap hints = index.data(N::HintsRole).toMap();
     const int urgency = index.data(N::UrgencyRole).toInt();
     QByteArray imagePng;
-    if (index.data(N::HasReplyActionRole).toBool()) {
-        m_error = QStringLiteral("Inline-reply notifications require a reply-capable Caelestia UI");
-        Q_EMIT PolicyChanged();
-        return {};
-    }
     const QImage image = qvariant_cast<QImage>(index.data(N::ImageRole));
     if (!image.isNull()) {
         QBuffer buffer(&imagePng);
         buffer.open(QIODevice::WriteOnly);
         if (!image.save(&buffer, "PNG")) {
-            m_error = QStringLiteral("Cannot encode authoritative Plasma notification image");
-            Q_EMIT PolicyChanged();
-            return {};
+            imagePng.clear();
+            degraded.append(QStringLiteral("image omitted"));
         }
     }
+    if (!degraded.isEmpty())
+        qCWarning(lcPresenter).nospace() << "notification " << id << " degraded: " << degraded.join(QStringLiteral("; "));
     return {{QStringLiteral("id"), id}, {QStringLiteral("replacesId"), id},
             {QStringLiteral("summary"), index.data(N::SummaryRole)}, {QStringLiteral("body"), index.data(N::BodyRole)},
             {QStringLiteral("appName"), index.data(N::ApplicationNameRole)},
@@ -306,8 +322,11 @@ QVariantList NotificationPresenter::Existing() {
         if (index.data(N::TypeRole).toInt() != N::NotificationType)
             continue;
         if (!index.data(N::ExpiredRole).toBool() || index.data(N::HasDefaultActionRole).toBool()
-            || !index.data(N::ActionNamesRole).toStringList().isEmpty())
-            result.append(describe(index));
+            || !index.data(N::ActionNamesRole).toStringList().isEmpty()) {
+            const QVariantMap entry = describe(index);
+            if (!entry.value(QStringLiteral("declined")).toBool())
+                result.append(entry);
+        }
     }
     return result;
 }

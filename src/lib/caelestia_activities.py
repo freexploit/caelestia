@@ -23,6 +23,19 @@ SHORTCUT_PATH = "/org/caelestia/Shortcuts"
 PRESENTER_SERVICE = "org.caelestia.PlasmaNotifications"
 PRESENTER_PATH = "/org/caelestia/PlasmaNotifications"
 
+# Sentinel so save(state=...) can leave a recorded error alone while
+# save(error=None) removes it.
+_UNSET = object()
+RETRY_DELAYS = (2, 5, 15, 60)
+
+
+class EntryFailure(RuntimeError):
+    """An entry failure that may resolve without an Activity switch."""
+
+    def __init__(self, message, transient=False):
+        super().__init__(message)
+        self.transient = transient
+
 PANEL_QUERY = r'''print(JSON.stringify(panels().map(function(p) {
     return {id:p.id,screen:p.screen,location:p.location,height:p.height,widgets:p.widgets().filter(function(w) {
         return w.type === "luisbocanegra.panel.colorizer";
@@ -77,7 +90,9 @@ class Coordinator:
         self.stopping = False
         self.desired = ""
         self.target = config.get("activity")
-        self.failed_activity = None
+        self.retry_index = 0
+        self.retry_at = 0.0
+        self.failure = None
         self.journal = {"version": 1, "state": "baseline", "panels": [], "meta": None, "trackerOwned": False}
         if self.journal_path.exists():
             self.journal = json.loads(self.journal_path.read_text())
@@ -92,12 +107,36 @@ class Coordinator:
         except BlockingIOError as exc:
             raise RuntimeError("Activity coordinator is already running; stop its user service before recovery") from exc
 
-    def save(self, state=None, error=None):
+    def save(self, state=None, error=_UNSET):
         if state:
             self.journal["state"] = state
-        if error is not None:
-            self.journal["error"] = error
+        if error is not _UNSET:
+            if error is None:
+                self.journal.pop("error", None)
+            else:
+                self.journal["error"] = error
         atomic_json(self.journal_path, self.journal)
+
+    def reset_retry(self):
+        self.failure = None
+        self.retry_index = 0
+        self.retry_at = 0.0
+
+    def retry_ready(self):
+        return self.failure is None or self.retry_at <= asyncio.get_running_loop().time()
+
+    def record_failure(self, exc):
+        transient = isinstance(exc, EntryFailure) and exc.transient
+        state = (transient, str(exc))
+        if self.failure != state:
+            print(str(exc), file=sys.stderr, flush=True)
+            self.failure = state
+        if transient:
+            delay = RETRY_DELAYS[self.retry_index]
+            self.retry_index = min(self.retry_index + 1, len(RETRY_DELAYS) - 1)
+            self.retry_at = asyncio.get_running_loop().time() + delay
+        else:
+            self.retry_at = float("inf")
 
     async def call(self, service, path, interface, member, signature="", body=None):
         reply = await asyncio.wait_for(self.bus.call(Message(destination=service, path=path, interface=interface,
@@ -120,11 +159,12 @@ class Coordinator:
             return
         if message.interface == ACTIVITY_IFACE and message.member == "CurrentActivityChanged":
             self.desired = message.body[0]
-            self.failed_activity = None
+            self.reset_retry()
             self.wake.set()
         elif message.interface == "org.freedesktop.DBus" and message.member == "NameOwnerChanged":
             name, old, new = message.body
             if name in [ACTIVITY_SERVICE, "org.kde.plasmashell", "org.kde.KWin", PRESENTER_SERVICE]:
+                self.reset_retry()
                 self.wake.set()
 
     async def current(self):
@@ -219,7 +259,11 @@ class Coordinator:
             self.visibility(widget)
         snapshot = (await self.call(PRESENTER_SERVICE, PRESENTER_PATH, PRESENTER_SERVICE, "Snapshot"))[0]
         if not snapshot.get("supported"):
-            raise RuntimeError("The scoped Plasma notification presenter is not supported: " + str(snapshot))
+            # Capability-state failure: retry with backoff, because a plasmashell
+            # restart or applet reload can make the presenter usable again
+            # without any Activity change.
+            raise EntryFailure("The scoped Plasma notification presenter is not supported: " + str(snapshot),
+                transient=True)
         if self.config.get("trackerRequired", True):
             supported = (await self.call("org.kde.KWin", "/Effects", "org.kde.kwin.Effects", "isEffectSupported", "s", ["kwin_workspace_tracker"]))[0]
             if not supported:
@@ -258,7 +302,7 @@ class Coordinator:
         return output.decode().strip()
 
     async def enter(self):
-        self.save("entering", "")
+        self.save("entering", error=None)
         panels = await self.preflight()
         env = dict(os.environ, CAELESTIA_ACTIVITY_MANAGED="1", CAELESTIA_MANAGED="1")
         self.process = await asyncio.create_subprocess_exec(*self.config["shellCommand"], env=env, start_new_session=True)
@@ -289,7 +333,7 @@ class Coordinator:
             self.journal["panels"].append(record)
             self.save()
             await self.set_visibility(record["panel"], record["widget"], record["owned"])
-        self.save("caelestia")
+        self.save("caelestia", error=None)
 
     async def leave(self):
         self.save("recovering")
@@ -333,7 +377,7 @@ class Coordinator:
                 self.journal["trackerOwned"] = False
             except Exception as exc:
                 errors.append(str(exc))
-        self.save("recovering" if errors else "baseline", "; ".join(errors))
+        self.save("recovering" if errors else "baseline", "; ".join(errors) if errors else None)
         if errors:
             raise RuntimeError("Recovery incomplete: " + "; ".join(errors))
 
@@ -353,26 +397,25 @@ class Coordinator:
                 try:
                     self.desired = await self.current()
                     if self.process and self.process.returncode is not None:
-                        self.failed_activity = self.desired
                         await self.leave()
+                        self.save(error="Caelestia exited")
+                        self.record_failure(RuntimeError("Caelestia exited"))
                     if self.desired != self.target:
-                        self.failed_activity = None
+                        self.reset_retry()
                         if self.process or self.journal.get("state") != "baseline":
                             await self.leave()
-                    elif not self.process and self.failed_activity != self.desired:
-                        try:
-                            await self.enter()
-                        except Exception as exc:
-                            self.failed_activity = self.desired
-                            print(str(exc), file=sys.stderr, flush=True)
-                            await self.leave()
-                            self.save(error=str(exc))
+                        elif "error" in self.journal:
+                            self.save(error=None)
+                    elif not self.process and self.retry_ready():
+                        await self.enter()
+                        self.reset_retry()
                     elif self.process:
                         # Rediscover external service/output changes without overlapping transitions.
                         await self.preflight()
                 except Exception as exc:
-                    print(str(exc), file=sys.stderr, flush=True)
                     await self.leave()
+                    self.save(error=str(exc))
+                    self.record_failure(exc)
                 if not self.stopping:
                     try:
                         await asyncio.wait_for(self.wake.wait(), timeout=2)

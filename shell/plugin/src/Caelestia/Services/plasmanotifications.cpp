@@ -170,6 +170,11 @@ bool PlasmaNotifications::setActive(bool active) {
         const auto notifications = qdbus_cast<QVariantList>(existing.arguments().constFirst());
         for (const auto& notification : notifications) {
             QVariantMap data = qdbus_cast<QVariantMap>(notification);
+            if (data.value(QStringLiteral("declined")).toBool() || !data.contains(QStringLiteral("id"))) {
+                qCWarning(lcPlasmaNotifications) << "replayed notification declined:"
+                                                 << data.value(QStringLiteral("reason")).toString();
+                continue;
+            }
             data.insert(QStringLiteral("replayed"), true);
             if (!deliver(data))
                 return false;
@@ -241,7 +246,7 @@ QString PlasmaNotifications::notificationImage(const QVariantMap& hints, uint id
     pixels = unwrap(pixels);
     if (pixels.isValid()) {
         if (pixels.metaType() != QMetaType::fromType<QDBusArgument>()) {
-            fail(QStringLiteral("Notification %1 contains unsupported image-data encoding").arg(id));
+            qCWarning(lcPlasmaNotifications) << "notification" << id << "image omitted: unsupported image-data encoding";
             return {};
         }
         const auto argument = pixels.value<QDBusArgument>();
@@ -255,11 +260,11 @@ QString PlasmaNotifications::notificationImage(const QVariantMap& hints, uint id
         const qint64 required = qint64(stride) * (qint64(height) - 1) + minimumStride;
         if (width <= 0 || height <= 0 || width > 16384 || height > 16384 || bits != 8
             || channels != (alpha ? 4 : 3) || minimumStride > stride || required <= 0 || required > data.size()) {
-            fail(QStringLiteral("Notification %1 contains invalid or unsupported image-data dimensions").arg(id));
+            qCWarning(lcPlasmaNotifications) << "notification" << id << "image omitted: invalid image-data dimensions";
             return {};
         }
         if (qint64(stride) * height > data.size()) {
-            fail(QStringLiteral("Notification %1 image-data has an incomplete final row").arg(id));
+            qCWarning(lcPlasmaNotifications) << "notification" << id << "image omitted: incomplete final row";
             return {};
         }
         const QImage image(reinterpret_cast<const uchar*>(data.constData()), width, height, stride,
@@ -267,7 +272,7 @@ QString PlasmaNotifications::notificationImage(const QVariantMap& hints, uint id
         const QString directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/plasma-notification-images");
         const QString file = directory + QStringLiteral("/%1-%2-%3.png").arg(m_bus.baseService().mid(1).replace(QLatin1Char('.'), QLatin1Char('-'))).arg(id).arg(++m_imageSerial);
         if (!QDir().mkpath(directory) || !image.save(file)) {
-            fail(QStringLiteral("Cannot cache image for Plasma notification %1").arg(id));
+            qCWarning(lcPlasmaNotifications) << "notification" << id << "image omitted: cannot cache image";
             return {};
         }
         return QUrl::fromLocalFile(file).toString();
@@ -283,7 +288,7 @@ QString PlasmaNotifications::notificationImage(const QVariantMap& hints, uint id
 bool PlasmaNotifications::deliver(QVariantMap data) {
     const uint id = data.value(QStringLiteral("id")).toUInt();
     if (!id) {
-        fail(QStringLiteral("Plasma returned a notification without its authoritative ID"));
+        qCWarning(lcPlasmaNotifications) << "notification declined: missing authoritative ID";
         return false;
     }
     const auto hints = qdbus_cast<QVariantMap>(data.value(QStringLiteral("hints")));
@@ -329,10 +334,6 @@ void PlasmaNotifications::Notify(uint id, const QString& appName, uint replacesI
                                  const QVariantMap& hints, int timeout) {
     if (!calledFromDBus() || message().service() != m_serverOwner || !m_registered)
         return;
-    if (actions.size() % 2) {
-        fail(QStringLiteral("Notification %1 has malformed action pairs").arg(id));
-        return;
-    }
     if (!m_active)
         return;
     const auto reply = presenterCall(QStringLiteral("Describe"), {id});
@@ -341,16 +342,30 @@ void PlasmaNotifications::Notify(uint id, const QString& appName, uint replacesI
         return;
     }
     QVariantMap data = qdbus_cast<QVariantMap>(reply.arguments().constFirst());
+    if (data.value(QStringLiteral("declined")).toBool()) {
+        qCWarning(lcPlasmaNotifications) << "notification" << id << "declined:"
+                                         << data.value(QStringLiteral("reason")).toString();
+        return;
+    }
+    if (!data.contains(QStringLiteral("id"))) {
+        qCWarning(lcPlasmaNotifications) << "notification" << id << "declined: absent from authoritative model";
+        return;
+    }
     data.insert(QStringLiteral("replacesId"), replacesId);
     // The watcher preserves original hints/actions omitted by normalized history.
     data.insert(QStringLiteral("hints"), hints);
-    QVariantList actionList;
-    for (qsizetype i = 0; i < actions.size(); i += 2)
-        actionList.append(QVariantMap{{QStringLiteral("identifier"), actions.at(i)}, {QStringLiteral("text"), actions.at(i + 1)}});
-    data.insert(QStringLiteral("actions"), actionList);
-    if (!data.contains(QStringLiteral("id"))) {
-        fail(QStringLiteral("Plasma watcher notification %1 is absent from its authoritative model").arg(id));
-        return;
+    if (actions.size() % 2) {
+        // Keep the actions the presenter already normalized; raw pairs are unusable.
+        qCWarning(lcPlasmaNotifications) << "notification" << id << "degraded: malformed action pairs";
+    } else {
+        QVariantList actionList;
+        for (qsizetype i = 0; i < actions.size(); i += 2) {
+            if (actions.at(i) == QLatin1String("inline-reply"))
+                continue; // No reply-capable UI; never surface a dead reply button.
+            actionList.append(QVariantMap{{QStringLiteral("identifier"), actions.at(i)},
+                                          {QStringLiteral("text"), actions.at(i + 1)}});
+        }
+        data.insert(QStringLiteral("actions"), actionList);
     }
     deliver(data);
 }
