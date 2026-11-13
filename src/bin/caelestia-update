@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+
+if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+    printf '%s\n' 'Nix/Home Manager owns this installation. Update the Caelestia input in your flake and rebuild your Home Manager or NixOS configuration; self-update is disabled.' >&2
+    exit 1
+fi
 export PATH="$HOME/.local/bin:$PATH"
 
 set -uo pipefail

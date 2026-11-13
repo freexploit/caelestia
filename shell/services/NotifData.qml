@@ -26,6 +26,61 @@ QtObject {
     }
 
     property Notification notification
+    property bool plasmaBacked: false
+    property bool plasmaLive: false
+    property int plasmaRevision: 0
+    property int closeReason: 0
+    property bool destroying: false
+    property var presentationItems: new Set()
+
+    function presentationSnapshot(): var {
+        return [...presentationItems].filter(item => item && item.visible).map(item => item.notificationGeometry());
+    }
+
+    function updatePlasma(data: var): void {
+        plasmaRevision++;
+        plasmaLive = true;
+        id = String(data.id);
+        time = new Date();
+        summary = data.summary;
+        body = data.body;
+        appName = data.appName;
+        appIcon = data.appIcon;
+        image = data.image;
+        hints = data.hints;
+        expireTimeout = data.expireTimeout;
+        urgency = data.urgency;
+        resident = data.resident;
+        hasActionIcons = data.hasActionIcons;
+        const revision = plasmaRevision;
+        const notificationId = id;
+        actions = data.actions.map(action => ({
+            identifier: action.identifier,
+            text: action.text,
+            invoke: () => {
+                if (plasmaLive && revision === plasmaRevision && !closed)
+                    Notifs.invokePlasmaAction(notificationId, action.identifier);
+            }
+        }));
+        maybeTriggerDummyImageLoader();
+        if (expireTimeout !== 0)
+            timer.restart();
+        else
+            timer.stop();
+    }
+
+    function invalidatePlasma(): void {
+        plasmaLive = false;
+        plasmaRevision++;
+        actions = [];
+        popup = false;
+    }
+
+    function closeFromServer(reason: int): void {
+        closeReason = reason;
+        invalidatePlasma();
+        close();
+    }
     property string id
     property string summary
     property string body
@@ -56,11 +111,16 @@ QtObject {
 
     readonly property bool hasFullscreen: Kwin.hasFullscreen()
 
+    onPopupChanged: {
+        if (!popup && plasmaLive)
+            Notifs.expirePlasma(id);
+    }
+
     readonly property Timer timer: Timer {
         running: true
         interval: notif.expireTimeout > 0 ? notif.expireTimeout : notif.hasFullscreen ? GlobalConfig.notifs.fullscreenExpireTimeout : GlobalConfig.notifs.defaultExpireTimeout
         onTriggered: {
-            if (GlobalConfig.notifs.expire || notif.hasFullscreen)
+            if ((!notif.plasmaBacked || notif.expireTimeout !== 0) && (GlobalConfig.notifs.expire || notif.hasFullscreen))
                 notif.popup = false;
         }
     }
@@ -263,9 +323,16 @@ QtObject {
     }
 
     function close(): void {
-        if (closed && !notification)
+        if (destroying)
             return;
+        if (plasmaLive) {
+            // The authoritative server sends its real close reason back through
+            // the watcher. Do not manufacture a successful local dismissal.
+            Notifs.dismissPlasma(id);
+            return;
+        }
         closed = true;
+        popup = false;
         if (locks.size > 0)
             return;
 
@@ -274,6 +341,7 @@ QtObject {
         const notifObj = notification;
         notification = null;
         notifObj?.dismiss();
+        destroying = true;
         destroy();
     }
 

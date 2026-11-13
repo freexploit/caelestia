@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick.Layouts
 import Caelestia.Config
 import qs.modules.bar
+import qs.utils
 import qs.modules.nexus.common
 
 PageBase {
@@ -36,10 +37,11 @@ PageBase {
         ToggleRow {
             last: true
             text: qsTr("Enable update checking")
-            subtext: qsTr("Enables the update indicator and periodic checks (every 30 minutes)")
+            subtext: ManagedRuntime.enabled ? ManagedRuntime.lifecycleInstructions : qsTr("Enables the update indicator and periodic checks (every 30 minutes)")
             reset: ({ node: GlobalConfig.general, setting: "checkUpdates" })
-            checked: GlobalConfig.general.checkUpdates
+            checked: !ManagedRuntime.enabled && GlobalConfig.general.checkUpdates
             onToggled: GlobalConfig.general.checkUpdates = checked
+            enabled: !ManagedRuntime.enabled
         }
     }
 }

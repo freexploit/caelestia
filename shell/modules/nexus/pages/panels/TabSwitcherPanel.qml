@@ -119,6 +119,8 @@ PageBase {
             onToggled: {
                 GlobalConfig.tabSwitch.currentDesktopOnly = checked;
                 GlobalConfig.save();
+                if (ManagedRuntime.enabled)
+                    return;
                 Quickshell.execDetached(["bash", "-c", `
                     kwriteconfig6 --file kwinrc --group "TabBox" --key "DesktopMode" "${checked ? "1" : "0"}"
                     qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure 2>/dev/null || true
@@ -135,6 +137,8 @@ PageBase {
             onToggled: {
                 GlobalConfig.tabSwitch.previewOnDesktop = checked;
                 GlobalConfig.save();
+                if (ManagedRuntime.enabled)
+                    return;
                 Quickshell.execDetached(["bash", "-c", `
                     kwriteconfig6 --file kwinrc --group "TabBox" --key "HighlightWindows" "${checked ? "true" : "false"}"
                     qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure 2>/dev/null || true
@@ -155,6 +159,8 @@ PageBase {
             onToggled: {
                 GlobalConfig.tabSwitch.showMinimized = checked;
                 GlobalConfig.save();
+                if (ManagedRuntime.enabled)
+                    return;
                 Quickshell.execDetached(["bash", "-c", `
                     kwriteconfig6 --file kwinrc --group "TabBox" --key "MinMode" "${checked ? "0" : "1"}"
                     qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure 2>/dev/null || true
@@ -171,6 +177,8 @@ PageBase {
             onToggled: {
                 GlobalConfig.tabSwitch.allScreens = checked;
                 GlobalConfig.save();
+                if (ManagedRuntime.enabled)
+                    return;
                 Quickshell.execDetached(["bash", "-c", `
                     kwriteconfig6 --file kwinrc --group "TabBox" --key "MultiScreenMode" "${checked ? "0" : "1"}"
                     qdbus6 org.kde.KWin /KWin org.kde.KWin.reconfigure 2>/dev/null || true

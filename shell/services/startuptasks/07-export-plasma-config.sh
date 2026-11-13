@@ -2,6 +2,8 @@
 # Export skwd-wall and audio visualizer plasma configurations on startup.
 set -euo pipefail
 
+[[ "${CAELESTIA_MANAGED:-}" == "1" ]] && exit 0
+
 EXPORT_SCRIPT=""
 for candidate in \
     "${SCRIPTS_DIR:-}/export-plasma-config.sh" \

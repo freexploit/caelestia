@@ -125,29 +125,15 @@ Item {
                 }
             }
 
-            const isKWin = (Kwin.windowList.length > 0);
-
             if (entry.toplevels.length === 1) {
-                let addr = String(entry.toplevels[0].address);
-                if (activeIdx === 0) {
-                    if (isKWin) {
-                        Kwin.minimizeWindow(addr);
-                    }
-                } else {
-                    if (isKWin) {
-                        Kwin.focusWindow(addr);
-                    } else {
-                        Kwin.dispatch(Kwin.usingLua ? `hl.dsp.focus({ window = "address:0x${addr}" })` : `focuswindow address:0x${addr}`);
-                    }
-                }
+                const address = String(entry.toplevels[0].address);
+                if (activeIdx === 0)
+                    Kwin.minimizeWindow(address);
+                else
+                    Kwin.focusWindow(address);
             } else {
-                let nextIdx = activeIdx !== -1 ? (activeIdx + 1) % entry.toplevels.length : 0;
-                let addr = String(entry.toplevels[nextIdx].address);
-                if (isKWin) {
-                    Kwin.focusWindow(addr);
-                } else {
-                    Kwin.dispatch(Kwin.usingLua ? `hl.dsp.focus({ window = "address:0x${addr}" })` : `focuswindow address:0x${addr}`);
-                }
+                const nextIdx = activeIdx !== -1 ? (activeIdx + 1) % entry.toplevels.length : 0;
+                Kwin.focusWindow(String(entry.toplevels[nextIdx].address));
             }
         } else if (entry.entry) {
             let newLaunching = Object.assign({}, root.launchingApps);
@@ -1031,6 +1017,9 @@ Item {
         : (Kwin.windowList || [])
 
     on_ToplevelsChanged: {
+        // Activity reassignment must invalidate visible entries even mid-drag.
+        if (root.isDragging)
+            root.isDragging = false;
         root.rebuildModel()
         delayedRebuildTimer.restart()
     }

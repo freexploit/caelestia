@@ -8,6 +8,7 @@ import Quickshell.Io
 import Caelestia
 import Caelestia.Config
 import qs.services
+import qs.utils
 
 Singleton {
     id: root
@@ -42,7 +43,7 @@ Singleton {
 
     function checkUpdates(branch, persistBranch) {
         if (branch === undefined) branch = "";
-        if (!GlobalConfig.general.checkUpdates) return;
+        if (ManagedRuntime.enabled || !GlobalConfig.general.checkUpdates) return;
         // Only an explicit branch pick re-points the tracked update channel;
         // background checks must not fight the channel the updater recorded
         // from the tree it actually installed (issue #565).
@@ -328,12 +329,14 @@ fi
     }
 
     function reload() {
+        if (ManagedRuntime.enabled)
+            return;
         loaded = false;
         localCommitProcess.running = true;
     }
 
     function loadMoreCommits(): void {
-        if (root.loadingMoreCommits || !root.hasMoreCommits || root.currentBranch !== "dev")
+        if (ManagedRuntime.enabled || root.loadingMoreCommits || !root.hasMoreCommits || root.currentBranch !== "dev")
             return;
         root.loadingMoreCommits = true;
         const moreCmd = `
@@ -405,6 +408,10 @@ git -C "$REPO" log --format="COMMIT%x1f%H%x1f%h%x1f%s%x1f%an%x1f%cI%x1f%P" --ski
     }
 
     function startUpdate(targetVersion: string): void {
+        if (ManagedRuntime.enabled) {
+            root.updateStatus = ManagedRuntime.lifecycleInstructions;
+            return;
+        }
         if (root.updateRunning)
             return;
         root.targetVersion = targetVersion;
@@ -433,7 +440,7 @@ git -C "$REPO" log --format="COMMIT%x1f%H%x1f%h%x1f%s%x1f%an%x1f%cI%x1f%P" --ski
     Process {
         id: localCommitProcess
 
-        running: GlobalConfig.general.checkUpdates
+        running: !ManagedRuntime.enabled && GlobalConfig.general.checkUpdates
         command: ["bash", "-c", `
 CONFIG="$HOME/.config/quickshell/caelestia"
 STATE_HELPER=""
@@ -721,7 +728,7 @@ fi
         && claudeCodeLatestVersion !== claudeCodeVersion
 
     function checkClaudeCodeUpdate(): void {
-        if (!GlobalConfig.ai.enableClaudeCode)
+        if (ManagedRuntime.enabled || !GlobalConfig.ai.enableClaudeCode)
             return;
         claudeCodeChecking = true;
         claudeCodeProcess.running = false;
@@ -763,7 +770,7 @@ echo "$INSTALLED|$LATEST"
 
         interval: root.checkIntervalMs
         repeat: true
-        running: GlobalConfig.general.checkUpdates && root.loaded
+        running: !ManagedRuntime.enabled && GlobalConfig.general.checkUpdates && root.loaded
         onTriggered: {
             if (!root.checkingUpdates)
                 root.checkUpdates();

@@ -19,6 +19,18 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Widgets)
 find_package(KF6 REQUIRED COMPONENTS CoreAddons)
 find_package(KWin REQUIRED)
 
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_LIBRARIES KWin::kwin)
+check_cxx_source_compiles("
+    #include <effect/effecthandler.h>
+    int main() {
+        KWin::EffectsHandler *handler = nullptr;
+        KWin::LogicalOutput *output = nullptr;
+        handler->setCurrentDesktop(handler->currentDesktop(output), output);
+    }
+" CAELESTIA_KWIN_OUTPUT_DESKTOPS)
+unset(CMAKE_REQUIRED_LIBRARIES)
+
 set(workspace_tracker_SRCS
     workspace_tracker.cpp
 )
@@ -27,6 +39,8 @@ kcoreaddons_add_plugin(kwin_workspace_tracker
     SOURCES ${workspace_tracker_SRCS}
     INSTALL_NAMESPACE "kwin/effects/plugins"
 )
+target_compile_definitions(kwin_workspace_tracker PRIVATE
+    CAELESTIA_KWIN_OUTPUT_DESKTOPS=$<BOOL:${CAELESTIA_KWIN_OUTPUT_DESKTOPS}>)
 
 target_link_libraries(kwin_workspace_tracker
     Qt::Core

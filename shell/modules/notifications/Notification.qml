@@ -21,6 +21,24 @@ StyledRect {
     readonly property int nonAnimHeight: summary.implicitHeight + (root.expanded ? Tokens.spacing.extraSmall * 2 + appName.height + body.height + actions.height + actions.anchors.topMargin : bodyPreview.height) + inner.anchors.margins * 2
     property bool expanded: Config.notifs.openExpanded
 
+    function notificationGeometry(): var {
+        const point = root.mapToGlobal(0, 0);
+        const expandPoint = expandBtn.mapToGlobal(0, 0);
+        const buttons = [];
+        if (root.expanded && actions.opacity > 0.99) {
+            for (let i = 0; i < actionRepeater.count; i++) {
+                const item = actionRepeater.itemAt(i);
+                if (!item || !item.visible || !item.enabled)
+                    continue;
+                const p = item.mapToGlobal(0, 0);
+                buttons.push({identifier: item.modelData.identifier, x: p.x, y: p.y, width: item.width, height: item.height});
+            }
+        }
+        return {x: point.x, y: point.y, width: root.width, height: root.height,
+            expanded: root.expanded, actions: buttons,
+            expand: {x: expandPoint.x, y: expandPoint.y, width: expandBtn.width, height: expandBtn.height}};
+    }
+
     color: root.modelData.urgency === NotificationUrgency.Critical ? Colours.palette.m3secondaryContainer : Colours.tPalette.m3surfaceContainer
     radius: Tokens.rounding.large
 
@@ -30,8 +48,12 @@ StyledRect {
     Component.onCompleted: {
         x = 0;
         modelData.lock(this);
+        modelData.presentationItems.add(this);
     }
-    Component.onDestruction: modelData.unlock(this)
+    Component.onDestruction: {
+        modelData.presentationItems.delete(this);
+        modelData.unlock(this);
+    }
 
     Behavior on x {
         Anim {
@@ -457,6 +479,7 @@ StyledRect {
                 }
 
                 Repeater {
+                    id: actionRepeater
                     model: root.modelData.actions
 
                     TextButton {

@@ -89,8 +89,8 @@ ListNode::ListNode(ListNode* fallback, QObject* parent, bool globalOnly)
         // Disconnect generic fallback notify, lists use a custom one
         QObject::disconnect(fallback, &ListNode::optionChanged, this, nullptr);
 
-        // Global lists must not follow the overlay they were read through
-        if (!m_globalOnly)
+        // Global lists follow defaults, but not per-monitor overlays.
+        if (!m_globalOnly || !isMonitorLayer())
             QObject::connect(fallback, &ListNode::elementsChanged, this, &ListNode::onFallbackListNotify);
     }
 }
@@ -256,10 +256,12 @@ void ListNode::resetToDefaults() {
         return;
     }
 
-    if (fallbackNode() && m_globalOnly)
+    if (isMonitorLayer() && m_globalOnly)
         return;
 
-    const WriteScope scope(this, WriteOrigin::FileReset);
+    // Preserve QmlReset so removing a list override is saved even if no scalar changes.
+    const auto origin = writeOrigin();
+    const WriteScope scope(this, origin == WriteOrigin::QmlReset ? origin : WriteOrigin::FileReset);
     setValue(valuesKey(), fallbackNode() ? fallbackNode()->value(valuesKey()) : QVariant::fromValue(defaultValue()));
 }
 
@@ -340,7 +342,7 @@ bool ListNode::isNested() const {
 }
 
 bool ListNode::rejectGlobalMutation() const {
-    if (!m_globalOnly || !fallbackNode())
+    if (!m_globalOnly || !isMonitorLayer())
         return false;
 
     qCWarning(lcSettings,

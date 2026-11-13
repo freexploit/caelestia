@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Caelestia
 import Caelestia.Config
 import qs.components.controls
+import qs.utils
 import qs.modules.nexus.common
 
 PageBase {
@@ -47,7 +48,7 @@ PageBase {
             last: true
             icon: "view_quilt"
             label: qsTr("Window Tiling")
-            status: Config.general.krohnkiteEnabled ? qsTr("Enabled (Krohnkite)") : qsTr("Disabled")
+            status: ManagedRuntime.enabled ? qsTr("Managed by your Nix/Plasma configuration") : (Config.general.krohnkiteEnabled ? qsTr("Enabled (Krohnkite)") : qsTr("Disabled"))
             onClicked: root.nState.openSubPage(3)
         }
     }

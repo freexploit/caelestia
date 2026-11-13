@@ -7,6 +7,7 @@ import Quickshell.Io
 import Quickshell.Services.Notifications
 import Caelestia
 import Caelestia.Config
+import Caelestia.Services
 import qs.components.misc
 import qs.services
 import qs.utils
@@ -31,6 +32,58 @@ Singleton {
     property string lastSavedState: ""
     property string activeTargetOutput: ""
     property bool loaded
+
+    readonly property bool activityManaged: Quickshell.env("CAELESTIA_ACTIVITY_MANAGED") === "1"
+    readonly property bool managedReady: !activityManaged || plasma.ready
+    readonly property bool managedActive: activityManaged && plasma.active
+    readonly property string managedError: plasma.error
+    readonly property var managedPolicy: plasma.policySnapshot
+
+    function setManagedActive(active: bool): bool {
+        return !activityManaged || plasma.setActive(active);
+    }
+
+    function acceptPlasmaNotification(data: var): void {
+        root.activeTargetOutput = root.getTargetOutput();
+        const existing = root.list.find(n => n.plasmaBacked && (n.id === String(data.id) || n.id === String(data.replacesId)));
+        const comp = existing || notifComp.createObject(root, { plasmaBacked: true });
+        comp.updatePlasma(data);
+        // Plasma's unchanged popup model evaluates DND, other inhibitors,
+        // per-app policy, critical exceptions, and native sound hints.
+        if (!existing)
+            root.registerNotification(comp);
+        else {
+            root.list = [comp, ...root.list.filter(n => n !== comp)];
+            saveTimer.restart();
+        }
+        comp.popup = root.managedActive && root.shouldShowPopup(data.appName ?? "") && plasma.present(data.id);
+    }
+
+    function snapshot(): string {
+        return JSON.stringify({
+            provider: activityManaged ? "plasma-watcher" : "quickshell",
+            ready: managedReady, active: activityManaged ? managedActive : true,
+            error: managedError, policy: managedPolicy,
+            notifications: root.list.map(n => ({
+                id: n.id, summary: n.summary, body: n.body, appName: n.appName,
+                image: n.image, popup: n.popup, closed: n.closed, closeReason: n.closeReason,
+                actions: n.actions.map(a => ({identifier: a.identifier, text: a.text})),
+                presentation: n.presentationSnapshot()
+            }))
+        });
+    }
+
+    function invokePlasmaAction(id: string, action: string): bool {
+        return plasma.invokeAction(Number(id), action);
+    }
+
+    function dismissPlasma(id: string): bool {
+        return plasma.dismiss(Number(id));
+    }
+
+    function expirePlasma(id: string): void {
+        plasma.expire(Number(id));
+    }
 
     /// Claim or release a named reason to stay quiet. Idempotent, so callers can call it
     /// on every state change instead of remembering whether they already hold.
@@ -104,7 +157,7 @@ Singleton {
         root.activeTargetOutput = root.getTargetOutput();
 
         const comp = notifComp.createObject(root, {
-            popup: root.shouldShowPopup(params.appName ?? ""),
+            popup: root.shouldShowPopup(params.appName ?? "") && (!root.activityManaged || !root.managedPolicy.inhibited),
             shellRaised: true,
             image: "",
             hints: ({}),
@@ -189,6 +242,8 @@ Singleton {
     }
 
     function shouldShowPopup(appName: string): bool {
+        if (activityManaged && !managedActive)
+            return false;
         if ([...Visibilities.screens.values()].some(v => v.sidebar))
             return false;
 
@@ -271,44 +326,70 @@ Singleton {
         reloadableId: "notifs"
     }
 
-    NotificationServer {
-        id: server
+    PlasmaNotifications {
+        id: plasma
 
-        keepOnReload: false
-        actionsSupported: true
-        bodyHyperlinksSupported: true
-        bodyImagesSupported: true
-        bodyMarkupSupported: true
-        imageSupported: true
-        persistenceSupported: true
-        // Lets clients offer reply-from-the-notification. The shell answers it in
-        // the sidebar dock; a passive toast cannot take keyboard focus.
-        inlineReplySupported: true
+        enabled: root.activityManaged
+        onNotificationReceived: data => root.acceptPlasmaNotification(data)
+        onNotificationClosed: (id, reason) => {
+            const comp = root.list.find(n => n.plasmaBacked && n.id === String(id));
+            comp?.closeFromServer(reason);
+        }
+        onInvalidated: {
+            for (const comp of root.list)
+                if (comp.plasmaBacked)
+                    comp.invalidatePlasma();
+        }
+        onNotificationPolicyChanged: {
+            for (const comp of root.list)
+                if (comp.plasmaLive && comp.popup && !plasma.eligible(Number(comp.id)))
+                    comp.popup = false;
+        }
+    }
 
-        onNotification: notif => {
-            notif.tracked = true;
+    // A Loader is essential: disabling callbacks on a constructed
+    // NotificationServer would still compete for the authoritative bus name.
+    Loader {
+        active: !root.activityManaged
+        sourceComponent: Component {
+            NotificationServer {
+                keepOnReload: false
+                actionsSupported: true
+                bodyHyperlinksSupported: true
+                bodyImagesSupported: true
+                bodyMarkupSupported: true
+                imageSupported: true
+                persistenceSupported: true
+                // Lets clients offer reply-from-the-notification. The shell answers it in
+                // the sidebar dock; a passive toast cannot take keyboard focus.
+                inlineReplySupported: true
 
-            // A muted app is answered and dismissed rather than filed: the sender sees a
-            // normal close, and the list, the unread count and the sound never see it.
-            // No NotifData is built for it, because filing is what counts a
-            // notification and this one is never filed.
-            if (root.isMuted(notif.appName)) {
-                notif.dismiss();
-                return;
+                onNotification: notif => {
+                    notif.tracked = true;
+
+                    // A muted app is answered and dismissed rather than filed: the sender sees a
+                    // normal close, and the list, the unread count and the sound never see it.
+                    // No NotifData is built for it, because filing is what counts a
+                    // notification and this one is never filed.
+                    if (root.isMuted(notif.appName)) {
+                        notif.dismiss();
+                        return;
+                    }
+
+                    root.activeTargetOutput = root.getTargetOutput();
+
+                    const showPopup = root.shouldShowPopup(notif.appName);
+                    const comp = notifComp.createObject(root, {
+                        popup: showPopup,
+                        notification: notif
+                    });
+
+                    root.registerNotification(comp);
+
+                    if (root.shouldPlaySound(notif))
+                        Audio.playNotification();
+                }
             }
-
-            root.activeTargetOutput = root.getTargetOutput();
-
-            const showPopup = root.shouldShowPopup(notif.appName);
-            const comp = notifComp.createObject(root, {
-                popup: showPopup,
-                notification: notif
-            });
-
-            root.registerNotification(comp);
-
-            if (root.shouldPlaySound(notif))
-                Audio.playNotification();
         }
     }
 
@@ -331,7 +412,17 @@ Singleton {
             }
             data.sort((a, b) => b.time - a.time);
             const cap = root.notifCap;
-            root.list = data.slice(0, cap).map(n => notifComp.createObject(root, n));
+            // A live watcher can deliver while FileView is loading. Never
+            // replace that feed or revive persisted callbacks for dead senders.
+            const liveIds = new Set(root.list.map(n => n.id));
+            const restored = data.filter(n => !liveIds.has(String(n.id))).slice(0, cap).map(n => {
+                if (root.activityManaged) {
+                    n.actions = [];
+                    n.plasmaBacked = true;
+                }
+                return notifComp.createObject(root, n);
+            });
+            root.list = [...root.list, ...restored].slice(0, cap);
 
             root.openCount = root.list.filter(n => !n.closed).length;
             root.popupCount = root.list.filter(n => n.popup).length;
@@ -364,6 +455,12 @@ Singleton {
                 quiet: root.quiet,
                 items: root.toPlainList()
             });
+        }
+
+        /// The managed provider's view: readiness, the presenter policy and every
+        /// notification, including plasma-backed ones. The lab suite reads this.
+        function snapshot(): string {
+            return root.snapshot();
         }
 
         function clear(): void {

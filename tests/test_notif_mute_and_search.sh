@@ -49,8 +49,21 @@ test_muting_an_app_drops_what_it_already_sent() {
 # a notification that was never filed, so each muted message ate someone else's unread.
 test_a_muted_notification_is_answered_and_never_filed() {
     local block muted_branch order
-    block="$(sed -n '/onNotification: notif => {/,/^        }$/p' "$NOTIFS")"
-    muted_branch="$(printf '%s\n' "$block" | sed -n '/if (root.isMuted(notif.appName)) {/,/^            }$/p')"
+    # The managed server sits behind a Loader, so the handler is nested: count braces
+    # instead of assuming it sits at a fixed indentation.
+    block="$(awk '
+        /onNotification: notif => \{/ { inside = 1 }
+        inside {
+            opens = gsub(/\{/, "{")
+            closes = gsub(/\}/, "}")
+            depth += opens - closes
+            print
+            if (started && depth == 0)
+                exit
+            started = 1
+        }
+    ' "$NOTIFS")"
+    muted_branch="$(printf '%s\n' "$block" | grep -A2 'if (root.isMuted(notif.appName)) {')"
 
     assert_contains "$block" 'if (root.isMuted(notif.appName)) {' "the notification path checks the mute first"
     assert_contains "$muted_branch" 'notif.dismiss();' "the sender still gets its close"

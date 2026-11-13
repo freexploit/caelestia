@@ -2,8 +2,14 @@
 #include "plasmawindows.hpp"
 
 #include <QCoreApplication>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
+#include <QDBusServiceWatcher>
 #include <QLoggingCategory>
 #include <QUuid>
+#include <utility>
 
 namespace caelestia::services {
 
@@ -11,11 +17,19 @@ namespace {
 
 Q_LOGGING_CATEGORY(logPlasmaWindows, "caelestia.services.plasmawindows");
 
-// get_window_by_uuid, which is what lets us address a window without mirroring
-// KWin's entire window list. get_icon needs 7, so 12 covers both.
+// Includes UUID discovery, Activity membership, and stacking-order refresh.
 constexpr int kRequiredVersion = 20;
 
 bool s_connectionGone = false;
+
+const QString kActivityService = QStringLiteral("org.kde.ActivityManager");
+const QString kActivityPath = QStringLiteral("/ActivityManager/Activities");
+const QString kActivityInterface = QStringLiteral("org.kde.ActivityManager.Activities");
+
+QString normaliseActivity(const QString& id) {
+    const auto uuid = QUuid::fromString(id);
+    return uuid.isNull() ? id : uuid.toString(QUuid::WithoutBraces);
+}
 
 } // namespace
 
@@ -110,6 +124,8 @@ void PlasmaWindowHandle::org_kde_plasma_window_client_geometry(int32_t x, int32_
 }
 
 void PlasmaWindowHandle::org_kde_plasma_window_initial_state() {
+    m_initialState = true;
+    emit readyChanged();
     emit stateChanged();
     emit geometryChanged();
     emit desktopsChanged();
@@ -152,7 +168,22 @@ void PlasmaWindowHandle::org_kde_plasma_window_virtual_desktop_left(const QStrin
     }
 }
 
+void PlasmaWindowHandle::org_kde_plasma_window_activity_entered(const QString& id) {
+    const auto activity = normaliseActivity(id);
+    if (!activity.isEmpty() && !m_activities.contains(activity)) {
+        m_activities.append(activity);
+        emit activitiesChanged();
+    }
+}
+
+void PlasmaWindowHandle::org_kde_plasma_window_activity_left(const QString& id) {
+    if (m_activities.removeOne(normaliseActivity(id))) {
+        emit activitiesChanged();
+    }
+}
+
 void PlasmaWindowHandle::org_kde_plasma_window_unmapped() {
+    m_mapped = false;
     emit unmapped();
 }
 
@@ -229,6 +260,21 @@ PlasmaWindows::PlasmaWindows(QObject* parent)
         connect(app, &QCoreApplication::aboutToQuit, this, &PlasmaWindows::shutdown);
     }
 
+    auto bus = QDBusConnection::sessionBus();
+    auto* watcher = new QDBusServiceWatcher(kActivityService, bus, QDBusServiceWatcher::WatchForOwnerChange, this);
+    connect(watcher, &QDBusServiceWatcher::serviceOwnerChanged, this,
+        [this](const QString&, const QString&, const QString& owner) {
+            ++m_activityRevision;
+            updateCurrentActivity({});
+            if (!owner.isEmpty()) {
+                queryCurrentActivity();
+                refresh();
+            }
+        });
+    bus.connect(kActivityService, kActivityPath, kActivityInterface, QStringLiteral("CurrentActivityChanged"), this,
+        SLOT(onCurrentActivityChanged(QString)));
+    queryCurrentActivity();
+
     available();
 }
 
@@ -249,7 +295,13 @@ bool PlasmaWindows::available() {
     if (!m_management) {
         m_management = new PlasmaWindowManagement(this);
         connect(m_management, &PlasmaWindowManagement::windowWithUuid, this, &PlasmaWindows::onWindowWithUuid);
-        connect(m_management, &PlasmaWindowManagement::windowMapped, this, &PlasmaWindows::onWindowMapped);
+        connect(m_management, &QWaylandClientExtension::activeChanged, this, [this]() {
+            if (m_management->isActive()) {
+                refresh();
+            } else {
+                resetWindows();
+            }
+        });
     }
     bool active = m_management->isActive();
     return active;
@@ -262,6 +314,10 @@ void PlasmaWindows::refresh() {
 }
 
 void PlasmaWindows::onWindowWithUuid(uint32_t id, const QString& raw_uuid) {
+    Q_UNUSED(id);
+    if (s_connectionGone || raw_uuid.isEmpty() || !m_management || !m_management->isActive()) {
+        return;
+    }
     const auto key = normaliseUuid(raw_uuid);
 
     if (m_handles.contains(key)) {
@@ -275,32 +331,78 @@ void PlasmaWindows::onWindowWithUuid(uint32_t id, const QString& raw_uuid) {
     connect(handle, &PlasmaWindowHandle::unmapped, this, [this, key]() {
         forget(key);
     });
+    connect(handle, &PlasmaWindowHandle::activitiesChanged, this, [this, handle]() {
+        if (handle->isReady()) {
+            emit eligibleWindowsChanged();
+        }
+    });
+    connect(handle, &PlasmaWindowHandle::readyChanged, this, &PlasmaWindows::eligibleWindowsChanged);
 
     m_handles.insert(key, handle);
     emit windowAdded(key);
 }
 
-void PlasmaWindows::onWindowMapped(uint32_t id) {}
-
 PlasmaWindowHandle* PlasmaWindows::handleFor(const QString& uuid) {
     if (uuid.isEmpty() || !available()) {
         return nullptr;
     }
+    return m_handles.value(normaliseUuid(uuid), nullptr);
+}
 
-    const auto key = normaliseUuid(uuid);
-    if (const auto it = m_handles.constFind(key); it != m_handles.constEnd()) {
-        return *it;
-    }
+PlasmaWindowHandle* PlasmaWindows::eligibleHandleFor(const QString& uuid) {
+    auto* handle = handleFor(uuid);
+    return isEligible(handle) ? handle : nullptr;
+}
 
-    auto* handle = new PlasmaWindowHandle(m_management->get_window_by_uuid(key));
-    handle->setUuid(key);
-    handle->setParent(this);
-    connect(handle, &PlasmaWindowHandle::unmapped, this, [this, key]() {
-        forget(key);
+bool PlasmaWindows::isEligible(const PlasmaWindowHandle* handle) const {
+    return !s_connectionGone && handle && m_management && m_management->isActive() &&
+           m_handles.value(handle->uuid(), nullptr) == handle && handle->isOnActivity(m_currentActivity);
+}
+
+void PlasmaWindows::onCurrentActivityChanged(const QString& activity) {
+    ++m_activityRevision;
+    updateCurrentActivity(activity);
+}
+
+void PlasmaWindows::queryCurrentActivity() {
+    const auto revision = ++m_activityRevision;
+    const auto message = QDBusMessage::createMethodCall(
+        kActivityService, kActivityPath, kActivityInterface, QStringLiteral("CurrentActivity"));
+    auto* watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(message), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this, revision](QDBusPendingCallWatcher* call) {
+        const QDBusPendingReply<QString> reply = *call;
+        call->deleteLater();
+        // A signal or owner change supersedes an in-flight startup/reconnect query.
+        if (revision != m_activityRevision) {
+            return;
+        }
+        if (reply.isError()) {
+            qCWarning(logPlasmaWindows) << "Cannot query current Activity:" << reply.error().message();
+            updateCurrentActivity({});
+        } else {
+            updateCurrentActivity(reply.value());
+        }
     });
-    m_handles.insert(key, handle);
-    emit windowAdded(key);
-    return handle;
+}
+
+void PlasmaWindows::updateCurrentActivity(const QString& activity) {
+    const auto id = normaliseActivity(activity);
+    if (m_currentActivity == id) {
+        return;
+    }
+    m_currentActivity = id;
+    emit eligibleWindowsChanged();
+    emit currentActivityChanged();
+}
+
+void PlasmaWindows::resetWindows() {
+    // Remove the authority before notifying consumers; cached actions now fail closed.
+    const auto handles = std::exchange(m_handles, {});
+    for (auto it = handles.cbegin(); it != handles.cend(); ++it) {
+        emit handleLost(it.key());
+        it.value()->deleteLater();
+    }
+    emit eligibleWindowsChanged();
 }
 
 void PlasmaWindows::forget(const QString& uuid) {

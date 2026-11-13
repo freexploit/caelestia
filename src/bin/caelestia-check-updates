@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # caelestia-check-updates - run by a systemd timer: count pending updates and notify.
+if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+    printf '%s\n' 'Nix/Home Manager owns updates; upstream update checks and timers are disabled.'
+    exit 0
+fi
 export PATH="$HOME/.local/bin:$PATH"
 
 if ! command -v git &> /dev/null; then

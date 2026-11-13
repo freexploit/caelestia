@@ -8,14 +8,20 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 #include <memory>
+
+namespace caelestia::shortcuts { class Recovery; }
 
 class GlobalShortcut;
 
 class GlobalShortcutDispatcher : public QObject {
     Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "org.caelestia.Shortcuts")
 
 public:
+    explicit GlobalShortcutDispatcher(QObject* parent = nullptr);
+    ~GlobalShortcutDispatcher() override;
     static GlobalShortcutDispatcher* instance();
 
     Q_INVOKABLE QString collisionForKey(const QString& portableKeyString) const;
@@ -25,6 +31,17 @@ public:
     void rebuildCollisionIndex();
 
     QHash<QString, QString> m_collisionIndex;
+
+public slots:
+    QVariantMap status() const;
+    QVariantMap release();
+
+private:
+    friend class GlobalShortcut;
+    std::unique_ptr<caelestia::shortcuts::Recovery> m_recovery;
+    QString m_error;
+    bool m_released = false;
+    bool m_serviceRegistered = false;
 
 signals:
     void shortcutRegistered(GlobalShortcut* sc);
@@ -71,7 +88,10 @@ public:
     static void rebuildCollisionIndex();
 
 private:
+    friend class GlobalShortcutDispatcher;
     void updateShortcut();
+    void updateManagedShortcut(const QList<QKeySequence>& keys);
+    bool releaseManagedShortcut();
     void persistStolenShortcuts() const;
 
     QString m_name;

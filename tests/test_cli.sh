@@ -194,4 +194,100 @@ test_version_reports_the_checkout_version() {
     assert_eq "caelestia $expected" "$RUN_OUTPUT" "the checkout version is reported"
 }
 
+test_managed_lifecycle_never_invokes_helpers_or_checkout_installers() {
+    setup_stubs
+    local CAELESTIA_MANAGED=1
+    export CAELESTIA_MANAGED
+    local CAELESTIA_DIR="$STUB_DIR/checkout"
+    export CAELESTIA_DIR
+    mkdir -p "$CAELESTIA_DIR"
+    printf 'printf "installer reached\\n" >> %q\n' "$CALLS" > "$CAELESTIA_DIR/install.sh"
+    local command
+    for command in install update uninstall login-screen; do
+        run_cli "$command"
+        assert_status 1 "$RUN_STATUS" "managed $command is unavailable"
+        assert_contains "$RUN_OUTPUT" "Nix/Home Manager owns" "managed $command explains ownership"
+        assert_contains "$RUN_OUTPUT" "rebuild" "managed $command supplies the declarative action"
+        assert_eq "" "$(cat "$CALLS")" "managed $command never reaches an imperative helper"
+    done
+}
+
+test_managed_help_version_and_scheme_remain_available() {
+    setup_stubs
+    local CAELESTIA_MANAGED=1
+    local CAELESTIA_LIB_DIR="$STUB_DIR"
+    export CAELESTIA_MANAGED CAELESTIA_LIB_DIR
+    stub_bin "$STUB_DIR" version 'printf "caelestia-shell 9.8.7, revision test\n"'
+
+    run_cli help
+    assert_status 0 "$RUN_STATUS" "managed help is available"
+    assert_contains "$RUN_OUTPUT" "Nix/Home Manager owns" "managed help identifies lifecycle ownership"
+    run_cli version
+    assert_status 0 "$RUN_STATUS" "managed version is available"
+    assert_eq "caelestia v9.8.7" "$RUN_OUTPUT" "managed version uses the packaged helper"
+    run_cli scheme list -n
+    assert_status 0 "$RUN_STATUS" "managed scheme is available"
+    assert_eq "scheme list -n" "$(calls_to "$CALLS" caelestia-color)" "managed scheme reaches the color pipeline"
+}
+
+test_managed_updater_and_first_launch_scripts_do_not_run_external_commands() {
+    setup_stubs
+    local HOME="$(dirname "$STUB_DIR")/managed-home"
+    local CAELESTIA_MANAGED=1
+    export HOME CAELESTIA_MANAGED
+    mkdir -p "$HOME"
+    local name script status output
+    for name in git curl sudo pkexec kwriteconfig6 qdbus6 kpackagetool6 notify-send; do
+        recording_stub "$STUB_DIR" "$name" "$CALLS" 99
+    done
+    local PATH="$STUB_DIR:$PATH"
+    export PATH
+    for script in "$REPO_ROOT"/shell/services/startuptasks/*.sh "$REPO_ROOT/src/bin/caelestia-check-updates"; do
+        output="$(bash "$script" 2>&1)"
+        status=$?
+        assert_status 0 "$status" "managed $(basename "$script") is skipped cleanly"
+    done
+    output="$(bash "$REPO_ROOT/src/bin/caelestia-update" 2>&1)"
+    status=$?
+    assert_status 1 "$status" "direct managed updater is blocked"
+    assert_contains "$output" "Nix/Home Manager owns" "direct updater explains Nix lifecycle"
+    output="$(bash "$REPO_ROOT/shell/scripts/ollama_setup.sh" --no-models 2>&1)"
+    status=$?
+    assert_status 1 "$status" "managed Ollama installer is blocked"
+    assert_contains "$output" "Nix owns dependencies" "Ollama directs users to Nix"
+    output="$(bash "$REPO_ROOT/shell/scripts/quickshare_setup.sh" --port 33333 2>&1)"
+    status=$?
+    assert_status 1 "$status" "managed Quick Share system setup is blocked"
+    assert_contains "$output" "Nix owns system integration" "Quick Share directs users to Nix"
+    assert_file_missing "$CALLS"
+    assert_file_missing "$HOME/.local/share/caelestia/state/startup_tasks.txt"
+    assert_file_missing "$HOME/.config/caelestia/shell.json"
+    assert_file_missing "$HOME/.config/caelestia-update"
+}
+
+test_managed_shell_start_uses_the_declared_service_owner() {
+    setup_stubs
+    local CAELESTIA_MANAGED=1
+    local CAELESTIA_ACTIVITY_MANAGED=0
+    local PATH="$STUB_DIR:$PATH"
+    export CAELESTIA_MANAGED CAELESTIA_ACTIVITY_MANAGED PATH
+    recording_stub "$STUB_DIR" systemctl "$CALLS"
+    recording_stub "$STUB_DIR" quickshell "$CALLS" 99
+
+    local output status
+    output="$(bash "$REPO_ROOT/src/bin/caelestia-shell-ipc" start 2>&1)"
+    status=$?
+    assert_status 0 "$status" "managed standalone start reaches the named unit"
+    assert_eq "--user start caelestia-shell.service" "$(calls_to "$CALLS" systemctl)" "HM launcher owns standalone startup"
+    assert_eq "" "$(calls_to "$CALLS" quickshell)" "managed helper does not launch raw quickshell"
+
+    : > "$CALLS"
+    CAELESTIA_ACTIVITY_MANAGED=1
+    output="$(bash "$REPO_ROOT/src/bin/caelestia-shell-ipc" restart 2>&1)"
+    status=$?
+    assert_status 0 "$status" "managed Activity restart asks the coordinator"
+    assert_eq "--user start caelestia-activities.service" "$(calls_to "$CALLS" systemctl)" "coordinator decides whether an Activity shell may run"
+    assert_eq "" "$(calls_to "$CALLS" quickshell)" "Activity helper never starts a second shell"
+}
+
 run_tests

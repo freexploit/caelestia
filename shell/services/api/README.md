@@ -62,6 +62,33 @@ Provides window and workspace related information.
 
 Use for active window state, workspace details, geometry helpers, and screen edge behavior.
 
+`kwin.windowList`, `kwin.activeWindow`, and `kwin.windowsForWorkspace(...)` are
+views of the current KDE Activity, in managed and non-managed sessions alike.
+Empty window Activity membership means all Activities; a window is not exposed
+until its initial protocol state is complete. `currentActivity` is the current
+UUID and `activityAvailable` is false while the Activity service is unavailable.
+The view is empty during that interval and is requeried when the service returns.
+All window actions revalidate membership, including cached UUIDs. Use
+`kwin.isWindowEligible(address)` to gate previews retained beyond a model update;
+it does not create handles for unknown or unmapped windows.
+
+The shell's `kwin windowState` IPC returns the authoritative view and actual
+per-output taskbar model membership for isolated Activity regression scenarios.
+Its `focusWindow`, `closeWindow`, and `isWindowEligible` IPC methods use the same
+native membership checks as the UI.
+The `overview-windows-<output-name> windowState` IPC reads instantiated overview
+page models directly; a page marked `instantiated: false` is not rendering proof.
+
+The isolated regression scenario creates distinguishable A-only, B-only,
+explicitly shared, and empty-membership/all-Activity windows. In B, taskbar and
+overview models must omit A-only windows while retaining B/shared/all windows,
+including minimized windows on different virtual desktops and both outputs.
+Reassign a displayed window to A, then invoke its previously cached focus, close,
+highlight, state, desktop, and output actions: none may affect it. Repeat with an
+unmapped UUID, rapid A-B-A switching, and Activity service loss/reappearance;
+the view must empty during service loss and converge to the queried Activity on
+return. Run the same view/action scenario without managed mode.
+
 ### `CaelestiaApi.network`
 
 Source: `NetworkApi.qml`

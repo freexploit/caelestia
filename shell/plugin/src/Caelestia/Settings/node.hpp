@@ -18,8 +18,12 @@ class Node : public QObject {
 
     Q_PROPERTY(QStringList overrides READ overrides NOTIFY overridesChanged)
 
+    const bool m_isRoot;
+    const bool m_monitorLayer;
+
 public:
-    explicit Node(Node* fallback, QObject* parent = nullptr, bool globalOnly = false);
+    explicit Node(Node* fallback, QObject* parent = nullptr, bool globalOnly = false,
+        LayerScope scope = LayerScope::Inherit);
 
     [[nodiscard]] QString key() const;
     [[nodiscard]] QString path() const;
@@ -28,6 +32,7 @@ public:
     [[nodiscard]] Node* rootNode() const;
     [[nodiscard]] Node* fallbackNode() const;
     void detachFallback();
+    [[nodiscard]] bool isMonitorLayer() const;
 
     [[nodiscard]] Q_INVOKABLE bool isGlobalOnly() const;
     [[nodiscard]] Q_INVOKABLE bool isOverride(const QString& key) const;
@@ -64,6 +69,7 @@ protected:
 
     [[nodiscard]] bool removeQuarantined(const QString& key);
     [[nodiscard]] ChangeBatcher* batcher() const;
+    [[nodiscard]] WriteOrigin writeOrigin() const;
 
     [[nodiscard]] virtual QString keyOf(const Node* child) const;
 

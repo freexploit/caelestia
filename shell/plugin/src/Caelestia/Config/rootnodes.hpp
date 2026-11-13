@@ -3,6 +3,8 @@
 #include <qjsengine.h>
 #include <qqmlengine.h>
 
+#include <memory>
+
 #include "../Settings/layerregistry.hpp"
 #include "../Settings/rootnode.hpp"
 #include "aiconfig.hpp"
@@ -59,7 +61,9 @@ class ConfigRoot : public settings::RootNode {
     CONFIG_SUBOBJECT(TabSwitchConfig, tabSwitch)
 
 public:
-    explicit ConfigRoot(const QString& path, ConfigRoot* fallback = nullptr, QObject* parent = nullptr);
+    explicit ConfigRoot(const QString& path, ConfigRoot* fallback = nullptr, QObject* parent = nullptr,
+        settings::LayerScope scope = settings::LayerScope::Inherit,
+        settings::SettingsFile::Access access = settings::SettingsFile::Access::ReadWrite);
 
 private:
     // Binds the computed appearance values to the global token base values
@@ -74,7 +78,9 @@ class TokensRoot : public settings::RootNode {
     CONFIG_SUBOBJECT(SizeTokens, sizes)
 
 public:
-    explicit TokensRoot(const QString& path, TokensRoot* fallback = nullptr, QObject* parent = nullptr);
+    explicit TokensRoot(const QString& path, TokensRoot* fallback = nullptr, QObject* parent = nullptr,
+        settings::LayerScope scope = settings::LayerScope::Inherit,
+        settings::SettingsFile::Access access = settings::SettingsFile::Access::ReadWrite);
 };
 
 namespace detail {
@@ -104,6 +110,7 @@ void saveFailed(ConfigKind kind, const QString& error, const QString& screen);
                                                                                                                        \
     private:                                                                                                           \
         explicit Type(QObject* parent = nullptr);                                                                      \
+        Type(Root* defaults, QObject* parent);                                                                          \
                                                                                                                        \
         void onTreeLoaded(settings::RootNode* layer);                                                                  \
         void onTreeLoadFailed(settings::RootNode* layer, const QString& error);                                        \
@@ -111,6 +118,7 @@ void saveFailed(ConfigKind kind, const QString& error, const QString& screen);
                                                                                                                        \
         void initLayer(Root* layer);                                                                                   \
                                                                                                                        \
+        const std::unique_ptr<Root> m_defaults;                                                                        \
         settings::LayerRegistry<Root> m_layers;                                                                        \
     };
 

@@ -2,6 +2,8 @@
 # Enable KDE desktop mode and sync KDE wallpaper layout to desktop mode.
 set -euo pipefail
 
+[[ "${CAELESTIA_MANAGED:-}" == "1" ]] && exit 0
+
 SYNC_SCRIPT=""
 for candidate in \
     "${SCRIPTS_DIR:-}/sync-kde-wallpaper-layout.sh" \

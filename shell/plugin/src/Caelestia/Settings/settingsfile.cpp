@@ -19,9 +19,10 @@ constexpr int kMaxLoadRetries = 3;
 
 }
 
-SettingsFile::SettingsFile(const QString& path, QObject* parent)
+SettingsFile::SettingsFile(const QString& path, QObject* parent, Access access)
     : QObject(parent)
     , m_path(path)
+    , m_access(access)
     , m_watcher(new QFileSystemWatcher(this))
     , m_saveDebounce(new QTimer(this))
     , m_loadDebounce(new QTimer(this))
@@ -44,6 +45,11 @@ std::optional<QJsonValue> SettingsFile::read() const {
 }
 
 void SettingsFile::write(const QJsonValue& json) {
+    if (m_access == Access::ReadOnly) {
+        emit writeFailed(QStringLiteral("Declarative defaults are read-only; edit Home Manager settings instead"));
+        return;
+    }
+
     m_pendingWrite = json;
     save();
 }
@@ -148,6 +154,24 @@ SettingsFile::LoadResult SettingsFile::load(bool reportErrors) {
 void SettingsFile::save() {
     if (!m_pendingWrite)
         return;
+
+    if (m_access == Access::UserOverrides) {
+        const QFileInfo info(m_path);
+        auto parent = info.absoluteDir();
+        while (!parent.exists() && parent.cdUp()) {
+        }
+        const auto inStore = [](const QString& path) {
+            return path == QStringLiteral("/nix/store") || path.startsWith(QStringLiteral("/nix/store/"));
+        };
+        if (info.isSymLink() || inStore(info.absoluteFilePath()) || inStore(info.canonicalFilePath()) ||
+            inStore(parent.canonicalPath())) {
+            m_pendingWrite = std::nullopt;
+            emit writeFailed(QStringLiteral(
+                "User overrides must be a writable file, not an immutable path or symbolic link; "
+                "configure Home Manager defaults separately"));
+            return;
+        }
+    }
 
     if (m_saveDebounce->isActive()) {
         QObject::connect(m_saveDebounce, &QTimer::timeout, this, &SettingsFile::save,

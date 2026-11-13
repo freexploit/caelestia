@@ -46,6 +46,7 @@ ShellRoot {
     property var _calendarInit: null
     property var _focusInit: null
     property var _accessibilityInit: null
+    property var _managedSession: ManagedSession
 
     settings.watchFiles: false
 
@@ -117,8 +118,14 @@ ShellRoot {
         target: "lock"
     }
 
-    Shortcuts {}
-    ScreenCorners {}
+    Loader {
+        active: !ManagedSession.managed || ManagedSession.surfaceActive
+        sourceComponent: Shortcuts {}
+    }
+    Loader {
+        active: !ManagedSession.managed || ManagedSession.surfaceActive
+        sourceComponent: ScreenCorners {}
+    }
 
     Timer {
         id: deferredStartup

@@ -4,9 +4,11 @@
 
 namespace caelestia::settings {
 
-RootNode::RootNode(const QString& path, RootNode* fallback, QObject* parent)
-    : ObjectNode(fallback, parent)
-    , m_file(new SettingsFile(path, this)) {
+RootNode::RootNode(const QString& path, RootNode* fallback, QObject* parent, LayerScope scope,
+    SettingsFile::Access access)
+    : ObjectNode(fallback, parent, false,
+          scope == LayerScope::Inherit ? (fallback ? LayerScope::Monitor : LayerScope::Global) : scope)
+    , m_file(new SettingsFile(path, this, access)) {
     QObject::connect(batcher(), &ChangeBatcher::dirtied, this, &RootNode::saveToFile);
     QObject::connect(m_file, &SettingsFile::changed, this, &RootNode::reloadFromFile);
     QObject::connect(m_file, &SettingsFile::readFailed, this, [this](const QString& error) {

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+[[ "${CAELESTIA_MANAGED:-}" == "1" ]] && exit 0
+
 MATUGEN_HELPER=""
 for candidate in \
     "${CAELESTIA_DATA_DIR:-}/scripts/lib/matugen.sh" \

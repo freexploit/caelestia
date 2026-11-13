@@ -47,7 +47,13 @@ public:
 
     bool skipTaskbar() const { return m_skipTaskbar; }
 
-    QStringList desktops() const { return m_desktops; }
+    const QStringList& desktops() const { return m_desktops; }
+
+    const QStringList& activities() const { return m_activities; }
+    bool isReady() const { return m_initialState && m_mapped; }
+    bool isOnActivity(const QString& activity) const {
+        return isReady() && !activity.isEmpty() && (m_activities.isEmpty() || m_activities.contains(activity));
+    }
 
     /// Sets or clears one window state flag.
     ///
@@ -64,6 +70,8 @@ signals:
     void geometryChanged();
     void stateChanged();
     void desktopsChanged();
+    void activitiesChanged();
+    void readyChanged();
 
     void unmapped();
 
@@ -78,6 +86,8 @@ protected:
     void org_kde_plasma_window_pid_changed(uint32_t pid) override;
     void org_kde_plasma_window_virtual_desktop_entered(const QString& id) override;
     void org_kde_plasma_window_virtual_desktop_left(const QString& id) override;
+    void org_kde_plasma_window_activity_entered(const QString& id) override;
+    void org_kde_plasma_window_activity_left(const QString& id) override;
     void org_kde_plasma_window_unmapped() override;
 
 private:
@@ -96,6 +106,9 @@ private:
     bool m_demandsAttention = false;
     bool m_skipTaskbar = false;
     QStringList m_desktops;
+    QStringList m_activities;
+    bool m_initialState = false;
+    bool m_mapped = true;
 };
 
 class PlasmaWindowManagement : public QWaylandClientExtensionTemplate<PlasmaWindowManagement>,
@@ -110,7 +123,6 @@ public:
 
 signals:
     void windowWithUuid(uint32_t id, const QString& uuid);
-    void windowMapped(uint32_t id);
 
 protected:
     void org_kde_plasma_window_management_window_with_uuid(uint32_t id, const QString& uuid) override;
@@ -145,12 +157,14 @@ public:
     bool available();
     void refresh();
 
-    /// The handle for @p uuid, or nullptr if the interface is unavailable or
-    /// the connection is already gone. Uuids are normalised, so callers need
-    /// not care whether theirs arrived brace-wrapped.
+    /// Look up an announced window only; a stale UUID must never recreate a handle.
     PlasmaWindowHandle* handleFor(const QString& uuid);
+    PlasmaWindowHandle* eligibleHandleFor(const QString& uuid);
+    bool isEligible(const PlasmaWindowHandle* handle) const;
 
-    QList<QString> windowUuids() const { return m_handles.keys(); }
+    const QHash<QString, PlasmaWindowHandle*>& handles() const { return m_handles; }
+    QString currentActivity() const { return m_currentActivity; }
+    bool activityAvailable() const { return !m_currentActivity.isEmpty(); }
 
     /// KWin hands out window ids as QUuid::toString(), i.e. brace-wrapped.
     static QString normaliseUuid(const QString& uuid);
@@ -159,19 +173,26 @@ signals:
     void windowAdded(const QString& uuid);
 
     void handleLost(const QString& uuid);
+    void currentActivityChanged();
+    void eligibleWindowsChanged();
 
 private slots:
     void onWindowWithUuid(uint32_t id, const QString& uuid);
-    void onWindowMapped(uint32_t id);
+    void onCurrentActivityChanged(const QString& activity);
 
 private:
     explicit PlasmaWindows(QObject* parent = nullptr);
 
     void forget(const QString& uuid);
+    void resetWindows();
+    void queryCurrentActivity();
+    void updateCurrentActivity(const QString& activity);
     void shutdown();
 
     PlasmaWindowManagement* m_management = nullptr;
     QHash<QString, PlasmaWindowHandle*> m_handles;
+    QString m_currentActivity;
+    quint64 m_activityRevision = 0;
 };
 
 } // namespace caelestia::services

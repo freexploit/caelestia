@@ -31,7 +31,19 @@ VERSION_FILE=""
 # for a package: empty unless the user names one with CAELESTIA_DIR. cmd_install reads it
 # instead of re-deciding, so `install` cannot pick up a stray ~/caelestia-kde on a package.
 CHECKOUT="${CAELESTIA_DIR:-}"
-case "${CAELESTIA_INSTALL_KIND:-$( [[ "$BIN_DIR" == /usr/bin ]] && printf 'package' || printf 'source' )}" in
+INSTALL_KIND="${CAELESTIA_INSTALL_KIND:-$( [[ "$BIN_DIR" == /usr/bin ]] && printf 'package' || printf 'source' )}"
+if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+    INSTALL_KIND=managed
+fi
+case "$INSTALL_KIND" in
+    managed)
+        KIND=managed
+        CHECKOUT=""
+        DATA_DIR="${CAELESTIA_DATA_DIR:-}"
+        QML_IMPORT_DEFAULT=""
+        LIB_DIR_DEFAULT=""
+        SHELL_CONFIG_DEFAULT=""
+        ;;
     package)
         KIND=package
         DATA_DIR="${CAELESTIA_DATA_DIR:-/usr/share/caelestia}"
@@ -55,7 +67,7 @@ SCRIPTS_DIR="$DATA_DIR/scripts"
 
 # CAELESTIA_DATA_DIR is read but not exported: for a checkout it names src/, not the
 # repo root.
-export QML2_IMPORT_PATH="$QML_IMPORT_DEFAULT${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
+export QML2_IMPORT_PATH="${QML_IMPORT_DEFAULT}${QML_IMPORT_DEFAULT:+${QML2_IMPORT_PATH:+:}}${QML2_IMPORT_PATH:-}"
 export CAELESTIA_LIB_DIR="${CAELESTIA_LIB_DIR:-$LIB_DIR_DEFAULT}"
 export CAELESTIA_SHELL_CONFIG="${CAELESTIA_SHELL_CONFIG:-$SHELL_CONFIG_DEFAULT}"
 
@@ -105,6 +117,10 @@ Screenshot options
 
 Run 'caelestia <command> -h' for the options of a command.
 EOF
+    if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+        printf '\nNix/Home Manager owns install, update, uninstall and login-screen configuration.\n'
+        printf 'Update your flake input and rebuild; disable programs.caelestia-kde.enable and rebuild to remove.\n'
+    fi
 }
 
 shell_usage() {
@@ -393,6 +409,18 @@ main() {
         return 0
     fi
     shift
+
+    if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+        case "$command" in
+            install|update|uninstall|login-screen)
+                printf '%s\n' 'Nix/Home Manager owns this installation; imperative lifecycle actions are disabled.' >&2
+                printf '%s\n' 'Update the Caelestia input in your flake and rebuild your Home Manager or NixOS configuration.' >&2
+                printf '%s\n' 'To remove it, disable programs.caelestia-kde.enable and rebuild; user settings are preserved.' >&2
+                printf '%s\n' 'Configure login and lock screens declaratively in your system configuration.' >&2
+                return 1
+                ;;
+        esac
+    fi
 
     case "$command" in
         shell)

@@ -15,6 +15,7 @@ ColumnLayout {
 
     required property PopoutState popouts
     property var model: popouts.dockModel
+    readonly property var eligibleToplevels: (root.model?.toplevels ?? []).filter(window => Kwin.isWindowEligible(window.address))
 
     property bool isPinned: {
         if (!model)
@@ -197,22 +198,15 @@ ColumnLayout {
         inactiveColour: Colours.palette.m3primaryContainer
         inactiveOnColour: Colours.palette.m3onPrimaryContainer
         verticalPadding: Tokens.padding.small * root.scaleOffset
-        text: qsTr("End task")
+        text: root.eligibleToplevels.length === 1 ? qsTr("Close window") : qsTr("Close windows")
         icon: "close"
         visible: {
-            if (!model || !model.toplevels || model.toplevels.length === 0) return false;
-            return !model.toplevels.some(t => t.title && String(t.title).startsWith("Nexus"));
+            if (root.eligibleToplevels.length === 0) return false;
+            return !root.eligibleToplevels.some(t => t.title && String(t.title).startsWith("Nexus"));
         }
         onClicked: {
-            for (const toplevel of model.toplevels) {
-                if (toplevel.pid) {
-                    Quickshell.execDetached({ command: ["kill", "-15", String(toplevel.pid)] });
-                } else if (Kwin.windowList.length > 0) {
-                    Kwin.closeWindow(toplevel.address);
-                } else {
-                    Kwin.dispatch(Kwin.usingLua ? `hl.dsp.window.close({ window = "address:0x${toplevel.address}" })` : `closewindow address:0x${toplevel.address}`);
-                }
-            }
+            for (const toplevel of root.eligibleToplevels)
+                Kwin.closeWindow(toplevel.address);
             root.popouts.hasCurrent = false;
         }
     }

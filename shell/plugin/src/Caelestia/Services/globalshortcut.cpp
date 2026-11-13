@@ -2,6 +2,7 @@
 
 #include <KGlobalAccel>
 #include <QCoreApplication>
+#include <QDBusConnection>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -18,10 +19,16 @@
 #include "../Config/common.hpp"
 #include "../Config/generalconfig.hpp"
 #include "../Config/rootnodes.hpp"
+#include "../../../../../src/lib/shortcutrecovery.hpp"
 
 Q_GLOBAL_STATIC(GlobalShortcutDispatcher, s_dispatcher)
 
 namespace {
+
+bool managedRuntime() {
+    static const bool managed = qEnvironmentVariable("CAELESTIA_MANAGED") == QLatin1String("1");
+    return managed;
+}
 
 QString escapeGVariantString(const QString& value) {
     QString escaped = value;
@@ -55,8 +62,56 @@ QStringList buildRestoreArgs(const QString& component, const QString& action, co
 
 } // namespace
 
+GlobalShortcutDispatcher::GlobalShortcutDispatcher(QObject* parent)
+    : QObject(parent) {
+    if (!managedRuntime())
+        return;
+    m_recovery = std::make_unique<caelestia::shortcuts::Recovery>();
+    if (!m_recovery->open(m_error) || !m_recovery->restoreAll(m_error))
+        qWarning() << "[Caelestia] Shortcut recovery failed:" << m_error;
+    auto bus = QDBusConnection::sessionBus();
+    m_serviceRegistered = bus.registerService(QStringLiteral("org.caelestia.Shortcuts"));
+    if (!m_serviceRegistered || !bus.registerObject(QStringLiteral("/org/caelestia/Shortcuts"), this,
+            QDBusConnection::ExportAllSlots)) {
+        m_error = QStringLiteral("Cannot register managed shortcut DBus service");
+        qWarning() << "[Caelestia]" << m_error;
+    }
+    if (QCoreApplication::instance())
+        connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] { release(); });
+}
+
+GlobalShortcutDispatcher::~GlobalShortcutDispatcher() = default;
+
+QVariantMap GlobalShortcutDispatcher::status() const {
+    int registered = 0;
+    for (const auto* shortcut : GlobalShortcut::allShortcuts()) {
+        if (!shortcut->m_activeKeys.isEmpty())
+            ++registered;
+    }
+    return { { QStringLiteral("ok"), m_error.isEmpty() }, { QStringLiteral("pending"), 0 },
+        { QStringLiteral("registered"), registered }, { QStringLiteral("metaAction"), QString() },
+        { QStringLiteral("metaBackend"), QStringLiteral("kglobalaccel") },
+        { QStringLiteral("error"), m_error } };
+}
+
+QVariantMap GlobalShortcutDispatcher::release() {
+    if (!managedRuntime())
+        return status();
+    m_released = true;
+    for (auto* shortcut : GlobalShortcut::allShortcuts())
+        shortcut->releaseManagedShortcut();
+    QString error;
+    if (m_recovery && m_recovery->restoreAll(error))
+        m_error.clear();
+    else
+        m_error = error.isEmpty() ? QStringLiteral("Shortcut recovery unavailable") : error;
+    return status();
+}
+
 GlobalShortcutDispatcher* GlobalShortcutDispatcher::instance() {
     GlobalShortcutDispatcher* inst = s_dispatcher();
+    if (managedRuntime())
+        return inst;
 
     // On very first access, run crash recovery: if the stolen-shortcuts file
     // exists, a previous session crashed before cleaning up. Restore everything
@@ -187,6 +242,14 @@ GlobalShortcut::GlobalShortcut(QObject* parent)
 }
 
 GlobalShortcut::~GlobalShortcut() {
+    if (managedRuntime()) {
+        releaseManagedShortcut();
+        if (!m_name.isEmpty()) {
+            s_registry.remove(m_name);
+            emit GlobalShortcutDispatcher::instance()->shortcutUnregistered(this);
+        }
+        return;
+    }
     if (!m_name.isEmpty()) {
         s_registry.remove(m_name);
         emit GlobalShortcutDispatcher::instance() -> shortcutUnregistered(this);
@@ -234,6 +297,8 @@ QString GlobalShortcut::name() const {
 }
 
 void GlobalShortcut::setName(const QString& name) {
+    if (managedRuntime() && m_name != name && !m_name.isEmpty() && !releaseManagedShortcut())
+        return;
     if (m_name == name)
         return;
 
@@ -242,7 +307,15 @@ void GlobalShortcut::setName(const QString& name) {
     }
 
     m_name = name;
+    if (!m_action) {
+        m_action = new QAction(this);
+        connect(m_action, &QAction::triggered, this, &GlobalShortcut::activated);
+    }
     m_action->setObjectName(QStringLiteral("caelestia-shortcut-") + m_name);
+    if (managedRuntime()) {
+        m_action->setProperty("componentName", QStringLiteral("caelestia-activity"));
+        m_action->setProperty("componentDisplayName", QStringLiteral("Caelestia Activity"));
+    }
 
     if (!m_name.isEmpty()) {
         s_registry.insert(m_name, this);
@@ -322,17 +395,26 @@ void GlobalShortcut::updateShortcut() {
 
     const int myGeneration = ++m_registerGeneration;
 
-    m_action->setText(m_description.isEmpty() ? QStringLiteral("Caelestia Action") : m_description);
+    if (m_action)
+        m_action->setText(m_description.isEmpty() ? QStringLiteral("Caelestia Action") : m_description);
 
     QList<QKeySequence> newSeqs;
     if (!m_key.isEmpty()) {
         const QStringList parts = m_key.split(QStringLiteral(";"));
         for (const QString& part : parts) {
             const QString trimmed = part.trimmed();
+            if (managedRuntime() && trimmed.compare(QLatin1String("Meta"), Qt::CaseInsensitive) == 0) {
+                newSeqs.append(QKeySequence(Qt::MetaModifier));
+                continue;
+            }
             if (!trimmed.isEmpty()) {
                 newSeqs.append(QKeySequence(trimmed));
             }
         }
+    }
+    if (managedRuntime()) {
+        updateManagedShortcut(caelestia::shortcuts::normalized(newSeqs));
+        return;
     }
 
     QList<QKeySequence> removedSeqs;
@@ -441,4 +523,123 @@ void GlobalShortcut::updateShortcut() {
         });
         proc->start(QStringLiteral("gdbus"), args);
     }
+}
+
+bool GlobalShortcut::releaseManagedShortcut() {
+    auto* dispatcher = GlobalShortcutDispatcher::instance();
+    // Disconnect the callback before returning keys. QAction destruction marks
+    // the action inactive but does not overwrite a later editor's saved keys.
+    delete m_action;
+    m_action = nullptr;
+    m_activeKeys.clear();
+    QString error;
+    if (dispatcher->m_recovery && !dispatcher->m_recovery->restore(m_name, error)) {
+        dispatcher->m_error = error;
+        qWarning() << "[Caelestia] Shortcut release failed:" << error;
+        return false;
+    }
+    m_stolenShortcuts.clear();
+    rebuildCollisionIndex();
+    return true;
+}
+
+void GlobalShortcut::updateManagedShortcut(const QList<QKeySequence>& keys) {
+    using namespace caelestia::shortcuts;
+    auto* dispatcher = GlobalShortcutDispatcher::instance();
+    if (dispatcher->m_released || !dispatcher->m_error.isEmpty())
+        return;
+    if (keys == m_activeKeys)
+        return;
+    if (!m_activeKeys.isEmpty()) {
+        if (!releaseManagedShortcut())
+            return;
+    }
+    if (!m_action) {
+        m_action = new QAction(this);
+        connect(m_action, &QAction::triggered, this, &GlobalShortcut::activated);
+    }
+    m_action->setObjectName(QStringLiteral("caelestia-shortcut-") + m_name);
+    m_action->setProperty("componentName", QStringLiteral("caelestia-activity"));
+    m_action->setProperty("componentDisplayName", QStringLiteral("Caelestia Activity"));
+    m_action->setText(displayLabel());
+    const QStringList id { QStringLiteral("caelestia-activity"), m_action->objectName(),
+        QStringLiteral("Caelestia Activity"), displayLabel() };
+    QString error;
+    const auto fail = [&] {
+        dispatcher->m_error = error;
+        qWarning() << "[Caelestia] Shortcut acquisition failed:" << error;
+        releaseManagedShortcut();
+    };
+    if (!keys.isEmpty()) {
+        QList<QKeySequence> before;
+        if (!readKeys(id, before, error)
+            || !dispatcher->m_recovery->prepare(m_name, id, before, keys, true, error)) {
+            fail();
+            return;
+        }
+    }
+    for (const auto& key : keys) {
+        QList<KGlobalShortcutInfo> conflicts;
+        if (!conflictsForKey(key, conflicts, error)) {
+            fail();
+            return;
+        }
+        for (const auto& info : conflicts) {
+            if (info.componentUniqueName() == QStringLiteral("caelestia-activity")) {
+                if (info.uniqueName() == m_action->objectName())
+                    continue;
+                error = QStringLiteral("Another Caelestia action already owns %1").arg(key.toString());
+                fail();
+                return;
+            }
+            QString component = info.componentUniqueName();
+            if (!info.contextUniqueName().isEmpty())
+                component += QLatin1Char('|') + info.contextUniqueName();
+            const QStringList displaced { component, info.uniqueName(), info.componentFriendlyName(), info.friendlyName() };
+            QList<QKeySequence> before;
+            if (!readKeys(displaced, before, error)) {
+                fail();
+                return;
+            }
+            auto owned = before;
+            owned.removeAll(key);
+            if (owned == before)
+                continue;
+            if (!dispatcher->m_recovery->prepare(m_name, displaced, before, owned, false, error)) {
+                fail();
+                return;
+            }
+            // Journal precedes mutation. Check again so a change observed during
+            // the write-ahead transaction cannot be silently overwritten.
+            QList<QKeySequence> current;
+            if (!readKeys(displaced, current, error) || current != before) {
+                if (error.isEmpty())
+                    error = QStringLiteral("Shortcut changed during acquisition");
+                fail();
+                return;
+            }
+            if (!writeKeys(displaced, owned, error) || !dispatcher->m_recovery->confirm(displaced, error)) {
+                fail();
+                return;
+            }
+            m_stolenShortcuts.append({ component, info.uniqueName(), before,
+                info.componentFriendlyName(), info.friendlyName(), key });
+        }
+    }
+    if (!keys.isEmpty()) {
+        const bool registered = KGlobalAccel::self()->setShortcut(m_action, keys, KGlobalAccel::NoAutoloading);
+        if (!dispatcher->m_recovery->confirm(id, error)) {
+            fail();
+            return;
+        }
+        QList<QKeySequence> actual;
+        if (!registered || !readKeys(id, actual, error) || actual != keys) {
+            if (error.isEmpty())
+                error = QStringLiteral("Caelestia shortcut acquisition readback mismatch: %1").arg(m_name);
+            fail();
+            return;
+        }
+    }
+    m_activeKeys = keys;
+    rebuildCollisionIndex();
 }

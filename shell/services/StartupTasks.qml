@@ -12,6 +12,8 @@ Item {
     readonly property string scriptsDir: Quickshell.shellPath("scripts")
 
     Component.onCompleted: {
+        if (ManagedRuntime.enabled)
+            return;
         Quickshell.execDetached(["bash", "-c", `
             STATE_FILE="$HOME/.local/share/caelestia/state/startup_tasks.txt"
             mkdir -p "$(dirname "$STATE_FILE")"

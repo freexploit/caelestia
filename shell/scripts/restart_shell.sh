@@ -20,6 +20,13 @@
 # Callers: the shell's own restart actions (PluginsPage, AppearancePage,
 # Toggles) and update.sh.
 
+if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+    if [[ "${CAELESTIA_ACTIVITY_MANAGED:-}" == "1" ]]; then
+        exec systemctl --user restart caelestia-activities.service
+    fi
+    exec systemctl --user restart caelestia-shell.service
+fi
+
 if command -v systemctl >/dev/null 2>&1; then
     exec systemctl --user restart caelestia-shell.service
 fi

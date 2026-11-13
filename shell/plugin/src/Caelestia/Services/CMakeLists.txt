@@ -86,6 +86,9 @@ qml_module(caelestia-services
         nightcolorbridge.hpp
         globalshortcut.cpp
         globalshortcut.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../../../src/lib/shortcutrecovery.cpp
+        plasmanotifications.cpp
+        plasmanotifications.hpp
         krohnkiteconfig.cpp
         krohnkiteconfig.hpp
         launcherentry.cpp

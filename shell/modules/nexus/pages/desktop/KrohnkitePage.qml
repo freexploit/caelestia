@@ -10,6 +10,7 @@ import Caelestia.Services
 import qs.components
 import qs.components.controls
 import qs.services
+import qs.utils
 import qs.modules.nexus.common
 
 PageBase {
@@ -55,7 +56,7 @@ PageBase {
 
     headerActions: [
         IconTextButton {
-            visible: root.updateAvailable
+            visible: !ManagedRuntime.enabled && root.updateAvailable
             text: root.updating ? qsTr("Updating...") : (root.latestVersion !== "" ? qsTr("Update Krohnkite (v%1)").arg(root.latestVersion) : qsTr("Update Krohnkite"))
             icon: "update"
             type: TextButton.Filled
@@ -120,18 +121,22 @@ PageBase {
     ]
 
     ColumnLayout {
+        enabled: !ManagedRuntime.enabled
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
         width: root.cappedWidth
         spacing: Tokens.spacing.extraSmall / 2
 
         ToggleRow {
+            enabled: !ManagedRuntime.enabled
             Layout.fillWidth: true
             first: true
             text: qsTr("Window Tiling")
-            subtext: qsTr("Automatically tile windows using Krohnkite")
+            subtext: ManagedRuntime.enabled ? qsTr("Krohnkite installation and settings are owned by your Nix/Plasma configuration") : qsTr("Automatically tile windows using Krohnkite")
             checked: Config.general.krohnkiteEnabled
             onToggled: {
+                if (ManagedRuntime.enabled)
+                    return;
                 GlobalConfig.general.krohnkiteEnabled = checked;
                 GlobalConfig.save();
                 if (checked) {
@@ -153,6 +158,8 @@ PageBase {
             fallbackText: qsTr("Select Layout...")
             fallbackIcon: "dashboard"
             onSelected: item => {
+                if (ManagedRuntime.enabled)
+                    return;
                 let layoutName = root.layoutValues[root.layoutItems.indexOf(item)];
                 GlobalConfig.general.krohnkiteLastLayout = layoutName;
                 GlobalConfig.save();
@@ -197,8 +204,18 @@ PageBase {
             gapRight: KrohnkiteConfig.screenGapRight
         }
 
+        StyledText {
+            Layout.fillWidth: true
+            visible: ManagedRuntime.enabled
+            text: qsTr("Krohnkite settings are read-only here in managed mode. Configure tiling declaratively in Nix/Plasma; these settings are session-global, not Activity-specific.")
+            wrapMode: Text.WordWrap
+            color: Colours.palette.m3onSurfaceVariant
+            font: Tokens.font.body.medium
+        }
+
         RowLayout {
             Layout.fillWidth: true
+            enabled: !ManagedRuntime.enabled
             Layout.topMargin: Tokens.spacing.medium
 
             SectionHeader {

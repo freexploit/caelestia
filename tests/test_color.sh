@@ -1095,4 +1095,68 @@ EOF
         "path.txt should contain actual video from skwd-wall, not webp thumbnail"
 }
 
+test_managed_palette_changes_leave_external_files_and_old_hooks_untouched() {
+    setup_sandbox
+    local CAELESTIA_MANAGED=1
+    export CAELESTIA_MANAGED
+    set_cli_config '{"theme":{"postHook":"touch \"$XDG_CONFIG_HOME/theme-hook-ran\""},"wallpaper":{"postHook":"touch \"$XDG_CONFIG_HOME/wallpaper-hook-ran\""}}'
+    mkdir -p "$XDG_CONFIG_HOME/gtk-3.0" "$XDG_CONFIG_HOME/caelestia/templates"
+    printf 'baseline gtk\n' > "$XDG_CONFIG_HOME/gtk-3.0/colors.css"
+    printf '{{ primary.hex }}\n' > "$XDG_CONFIG_HOME/caelestia/templates/custom.txt"
+
+    run_color wallpaper -f "$(wallpaper_image managed.png)"
+    assert_status 0 "$STATUS" "managed dynamic palette renders"
+    assert_file_exists "$XDG_STATE_HOME/caelestia/scheme.json"
+    assert_eq "baseline gtk" "$(cat "$XDG_CONFIG_HOME/gtk-3.0/colors.css")" "managed defaults preserve GTK preferences"
+    assert_file_missing "$XDG_CONFIG_HOME/theme-hook-ran"
+    assert_file_missing "$XDG_CONFIG_HOME/wallpaper-hook-ran"
+    assert_file_missing "$XDG_STATE_HOME/caelestia/theme/custom.txt"
+    assert_file_missing "$XDG_DATA_HOME/color-schemes/Matugen.colors"
+    assert_file_missing "$XDG_DATA_HOME/konsole/Matugen.colorscheme"
+    assert_eq "" "$(cat "$KDE_CALLS")" "managed defaults do not invoke KDE mutation commands"
+
+    run_color scheme set -n catppuccin -f mocha -m dark
+    assert_status 0 "$STATUS" "managed named palette renders without external targets"
+    assert_eq "" "$(cat "$CALLS")" "a shell-only named palette needs no matugen fanout run"
+    assert_eq "catppuccin" "$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["name"])' "$XDG_STATE_HOME/caelestia/scheme.json")" "named palette is committed"
+}
+
+test_managed_external_targets_require_explicit_opt_in() {
+    setup_sandbox
+    local CAELESTIA_MANAGED=1
+    local CAELESTIA_THEME_INTEGRATIONS=enableKde,enableKonsole,enableGtk
+    export CAELESTIA_MANAGED CAELESTIA_THEME_INTEGRATIONS
+    set_cli_config '{"theme":{"enableKde":false,"enableGtk":false}}'
+
+    run_color wallpaper -f "$(wallpaper_image opt-in.png)"
+    assert_status 0 "$STATUS" "managed explicit integration renders"
+    assert_file_exists "$XDG_DATA_HOME/konsole/Matugen.colorscheme"
+    assert_file_missing "$XDG_DATA_HOME/color-schemes/Matugen.colors"
+    assert_file_missing "$XDG_CONFIG_HOME/gtk-3.0/colors.css"
+    assert_file_missing "$XDG_CONFIG_HOME/kitty/themes/Matugen.conf"
+    assert_eq "" "$(cat "$KDE_CALLS")" "explicit config false overrides environment defaults"
+
+    set_cli_config '{"theme":{"enableGtk":true,"enableHooks":true,"postHook":"touch \"$XDG_CONFIG_HOME/explicit-hook-ran\""}}'
+    run_color scheme set -n catppuccin -f mocha -m dark
+    assert_status 0 "$STATUS" "managed cli.json true enables selected external targets"
+    assert_file_exists "$XDG_CONFIG_HOME/gtk-3.0/colors.css"
+    assert_file_exists "$XDG_CONFIG_HOME/explicit-hook-ran"
+    assert_file_missing "$XDG_CONFIG_HOME/kitty/themes/Matugen.conf"
+}
+
+test_managed_custom_templates_require_a_separate_opt_in() {
+    setup_sandbox
+    local CAELESTIA_MANAGED=1
+    local CAELESTIA_THEME_INTEGRATIONS=enableUserTemplates
+    export CAELESTIA_MANAGED CAELESTIA_THEME_INTEGRATIONS
+    mkdir -p "$XDG_CONFIG_HOME/caelestia/templates"
+    printf '{{ primary.hex }}\n' > "$XDG_CONFIG_HOME/caelestia/templates/custom.txt"
+
+    run_color scheme set -n catppuccin -f mocha -m dark
+    assert_status 0 "$STATUS" "managed custom template opt-in renders"
+    assert_file_exists "$XDG_STATE_HOME/caelestia/theme/custom.txt"
+    assert_file_missing "$XDG_CONFIG_HOME/gtk-3.0/colors.css"
+    assert_file_missing "$XDG_DATA_HOME/color-schemes/Matugen.colors"
+}
+
 run_tests

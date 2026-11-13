@@ -17,6 +17,31 @@ QString forScreen(const QString& global, const QString& layer, const QString& sc
     return screen.isEmpty() ? global : layer.arg(screen);
 }
 
+settings::SettingsFile::Access overrideAccess(settings::SettingsFile::Access access, const char* defaultsEnv) {
+    return access == settings::SettingsFile::Access::ReadWrite &&
+                   (qEnvironmentVariable("CAELESTIA_MANAGED") == u"1"_s ||
+                       !qEnvironmentVariable(defaultsEnv).isEmpty())
+               ? settings::SettingsFile::Access::UserOverrides
+               : access;
+}
+
+// Load defaults before constructing the writable tree: inherited values must not
+// become overrides. Environment path changes take effect on the next shell start;
+// SettingsFile watches same-path updates without ever writing the defaults.
+template <typename Root> Root* defaultsRoot(const char* defaultsEnv, detail::ConfigKind kind) {
+    const auto path = qEnvironmentVariable(defaultsEnv);
+    if (path.isEmpty())
+        return nullptr;
+
+    auto* const root = new Root(path, nullptr, nullptr, settings::LayerScope::Global,
+        settings::SettingsFile::Access::ReadOnly);
+    QObject::connect(root, &Root::treeLoadFailed, root, [kind](settings::RootNode*, const QString& error) {
+        detail::loadFailed(kind, error, u"declarative defaults"_s);
+    });
+    root->load();
+    return root;
+}
+
 } // namespace
 
 namespace detail {
@@ -55,8 +80,9 @@ void saveFailed(ConfigKind kind, const QString& error, const QString& screen) {
 
 } // namespace detail
 
-ConfigRoot::ConfigRoot(const QString& path, ConfigRoot* fallback, QObject* parent)
-    : RootNode(path, fallback, parent) {
+ConfigRoot::ConfigRoot(const QString& path, ConfigRoot* fallback, QObject* parent, settings::LayerScope scope,
+    settings::SettingsFile::Access access)
+    : RootNode(path, fallback, parent, scope, overrideAccess(access, "CAELESTIA_DEFAULTS_FILE")) {
     bindTokens();
     qCDebug(lcConfig) << "Created config root for" << nameFor(key());
 }
@@ -72,12 +98,13 @@ void ConfigRoot::bindTokens() {
     m_appearance->anim()->durations()->bindAnim(m_appearance->anim());
 }
 
-TokensRoot::TokensRoot(const QString& path, TokensRoot* fallback, QObject* parent)
-    : RootNode(path, fallback, parent) {
+TokensRoot::TokensRoot(const QString& path, TokensRoot* fallback, QObject* parent, settings::LayerScope scope,
+    settings::SettingsFile::Access access)
+    : RootNode(path, fallback, parent, scope, overrideAccess(access, "CAELESTIA_TOKENS_DEFAULTS_FILE")) {
     qCDebug(lcConfig) << "Created tokens root for" << nameFor(key());
 }
 
-#define SINGLETON_IMPL(Type, Root, file, kind)                                                                         \
+#define SINGLETON_IMPL(Type, Root, file, kind, defaultsEnv)                                                             \
     Type* Type::instance() {                                                                                           \
         static Type instance;                                                                                          \
         return &instance;                                                                                              \
@@ -97,7 +124,11 @@ TokensRoot::TokensRoot(const QString& path, TokensRoot* fallback, QObject* paren
     }                                                                                                                  \
                                                                                                                        \
     Type::Type(QObject* parent)                                                                                        \
-        : Root(configDir() + QLatin1Char('/') + file, nullptr, parent)                                                 \
+        : Type(defaultsRoot<Root>(defaultsEnv, kind), parent) {}                                                        \
+                                                                                                                       \
+    Type::Type(Root* defaults, QObject* parent)                                                                         \
+        : Root(configFile(file), defaults, parent, settings::LayerScope::Global)                                       \
+        , m_defaults(defaults)                                                                                         \
         , m_layers(monitorConfigDir(), file, this) {                                                                   \
         initLayer(this);                                                                                               \
     }                                                                                                                  \
@@ -121,8 +152,10 @@ TokensRoot::TokensRoot(const QString& path, TokensRoot* fallback, QObject* paren
         layer->load();                                                                                                 \
     }
 
-SINGLETON_IMPL(ConfigSingleton, ConfigRoot, QStringLiteral("shell.json"), detail::ConfigKind::Shell)
-SINGLETON_IMPL(TokensSingleton, TokensRoot, QStringLiteral("shell-tokens.json"), detail::ConfigKind::Tokens)
+SINGLETON_IMPL(ConfigSingleton, ConfigRoot, QStringLiteral("shell.json"), detail::ConfigKind::Shell,
+    "CAELESTIA_DEFAULTS_FILE")
+SINGLETON_IMPL(TokensSingleton, TokensRoot, QStringLiteral("shell-tokens.json"), detail::ConfigKind::Tokens,
+    "CAELESTIA_TOKENS_DEFAULTS_FILE")
 
 #undef SINGLETON_IMPL
 

@@ -38,9 +38,10 @@ Item {
     property real bloomProgress: 0.0
     property bool _thumbExists: root.thumbPath ? IUtils.fileExists(root.thumbPath) : false
 
-    readonly property string thumbPath: root.activeAddress ? `${Paths.runtimeDir}/caelestia/window-thumbs/${root.activeAddress.startsWith("0x") ? root.activeAddress.slice(2) : root.activeAddress}.png` : ""
+    readonly property bool windowEligible: Kwin.isWindowEligible(root.activeAddress)
+    readonly property string thumbPath: root.windowEligible ? `${Paths.runtimeDir}/caelestia/window-thumbs/${root.activeAddress.startsWith("0x") ? root.activeAddress.slice(2) : root.activeAddress}.png` : ""
     readonly property real fitted: root.sourceAspect > (root.width / Math.max(1, root.height)) ? root.width / root.sourceAspect : root.height
-    readonly property bool hasLiveStream: stream.available
+    readonly property bool hasLiveStream: root.windowEligible && stream.available
 
     function triggerSwitch(): void {
         const hasTarget = root.address !== "" || root.source !== "";
@@ -134,7 +135,7 @@ Item {
     WindowStream {
         id: stream
 
-        active: root.active && GlobalConfig.bar.livePreviews && !!root.activeAddress
+        active: root.active && GlobalConfig.bar.livePreviews && root.windowEligible
         address: root.activeAddress
     }
 

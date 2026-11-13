@@ -13,6 +13,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QTextStream>
+#include <QtEnvironmentVariables>
 
 #include "../Config/common.hpp"
 
@@ -21,6 +22,11 @@ namespace caelestia::services {
 namespace {
 
 constexpr auto kwinService = "org.kde.KWin";
+
+bool managedRuntime() {
+    static const bool managed = qEnvironmentVariable("CAELESTIA_MANAGED") == QLatin1String("1");
+    return managed;
+}
 
 QString stolenEdgesPath() {
     return caelestia::config::configFile(QStringLiteral("stolen-screen-edges.json"));
@@ -145,6 +151,8 @@ ScreenEdges::~ScreenEdges() {
 }
 
 bool ScreenEdges::available() const {
+    if (managedRuntime())
+        return false;
     auto* iface = QDBusConnection::sessionBus().interface();
     return iface && iface->isServiceRegistered(QLatin1String(kwinService));
 }
@@ -154,6 +162,8 @@ bool ScreenEdges::holds(int corner) const {
 }
 
 void ScreenEdges::recoverFromCrash() {
+    if (managedRuntime())
+        return;
     QFile file(stolenEdgesPath());
     if (!file.open(QIODevice::ReadOnly)) {
         return;
@@ -181,6 +191,8 @@ void ScreenEdges::recoverFromCrash() {
 }
 
 void ScreenEdges::claim(int corner) {
+    if (managedRuntime())
+        return;
     if (electricBorderKey(corner).isEmpty() || m_stolen.contains(corner)) {
         return;
     }
@@ -272,6 +284,8 @@ void ScreenEdges::restoreCorner(const StolenEdge& stolen) {
 }
 
 void ScreenEdges::restoreAll() {
+    if (managedRuntime())
+        return;
     if (m_restored) {
         return;
     }

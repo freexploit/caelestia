@@ -16,6 +16,29 @@ case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
     *) export LC_ALL=C.UTF-8 ;;
 esac
 
+# Home Manager's named units retain declarative defaults and the coordinator is
+# the only owner allowed to start an Activity-scoped shell.
+if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+    case "${1:-}" in
+        start|daemon|restart)
+            if ! command -v systemctl >/dev/null 2>&1; then
+                echo "[ERR] Managed startup requires the Home Manager user service. Enable programs.caelestia-kde and rebuild; direct package launches use caelestia-shell." >&2
+                exit 1
+            fi
+            if [[ "${CAELESTIA_ACTIVITY_MANAGED:-}" == "1" ]]; then
+                exec systemctl --user start caelestia-activities.service
+            fi
+            operation=start
+            [[ "${1:-}" == "restart" ]] && operation=restart
+            if ! systemctl --user "$operation" caelestia-shell.service; then
+                echo "[ERR] Enable programs.caelestia-kde in Home Manager and rebuild to install the managed shell unit. Direct package launches use caelestia-shell." >&2
+                exit 1
+            fi
+            exit 0
+            ;;
+    esac
+fi
+
 _quickshell() {
     if command -v quickshell >/dev/null 2>&1; then
         command -v quickshell

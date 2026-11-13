@@ -202,6 +202,8 @@ PageBase {
             icon: "delete_forever"
             label: qsTr("Uninstall Caelestia")
             status: {
+                if (Uninstaller.state === "managed")
+                    return qsTr("Managed by Nix/Home Manager. Disable programs.caelestia-kde.enable and rebuild to remove.");
                 if (Uninstaller.state === "probing")
                     return qsTr("Checking for the uninstaller…");
                 if (Uninstaller.state === "script")

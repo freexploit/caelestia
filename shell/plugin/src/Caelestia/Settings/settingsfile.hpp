@@ -18,7 +18,13 @@ public:
         Error
     };
 
-    explicit SettingsFile(const QString& path, QObject* parent = nullptr);
+    enum class Access {
+        ReadWrite,
+        ReadOnly,
+        UserOverrides,
+    };
+
+    explicit SettingsFile(const QString& path, QObject* parent = nullptr, Access access = Access::ReadWrite);
 
     [[nodiscard]] std::optional<QJsonValue> read() const;
     void write(const QJsonValue& json);
@@ -32,6 +38,7 @@ signals:
 
 private:
     QString m_path;
+    const Access m_access;
     QFileSystemWatcher* m_watcher;
     QTimer* m_saveDebounce;
     QTimer* m_loadDebounce;

@@ -25,6 +25,8 @@ Singleton {
     ]
 
     readonly property string state: {
+        if (ManagedRuntime.enabled)
+            return "managed";
         if (!root.probed)
             return "probing";
         if (root.scriptPath !== "")
@@ -41,7 +43,7 @@ Singleton {
     property string manualCommand: ""
 
     function launch(): void {
-        if (!root.scriptFound)
+        if (ManagedRuntime.enabled || !root.scriptFound)
             return;
 
         Launch.launchInTerminal(["bash", root.scriptPath], "");
@@ -50,7 +52,7 @@ Singleton {
     Process {
         id: probe
 
-        running: true
+        running: !ManagedRuntime.enabled
         command: ["sh", "-c", `
 home="$1"
 caelestia_dir="$2"

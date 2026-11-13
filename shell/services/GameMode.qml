@@ -59,6 +59,8 @@ Singleton {
     }
 
     function setDynamicConfs(): void {
+        if (ManagedRuntime.enabled)
+            return;
         Kwin.extras.applyOptions({
             "animations:enabled": 0,
             "decoration:shadow:enabled": 0,
@@ -72,6 +74,8 @@ Singleton {
     }
 
     function applyKwin(enable: bool): void {
+        if (ManagedRuntime.enabled)
+            return;
         const stateFile = `${Paths.cache}/gamemode-state`;
         if (enable) {
             Quickshell.execDetached(["sh", "-c",
@@ -111,22 +115,24 @@ Singleton {
 
             if (GlobalConfig.utilities.toasts.gameModeChanged)
                 Toaster.toast(qsTr("Game mode enabled"),
-                    root.onHyprland ? qsTr("Disabled Hyprland animations, blur, gaps and shadows")
-                                    : qsTr("Paused video wallpaper, disabled blur and animations"), "gamepad");
+                    ManagedRuntime.enabled ? qsTr("Paused video wallpaper; Nix-owned desktop effects are unchanged")
+                        : (root.onHyprland ? qsTr("Disabled Hyprland animations, blur, gaps and shadows")
+                                           : qsTr("Paused video wallpaper, disabled blur and animations")), "gamepad");
         } else {
             if (root.restoreVideoWallpaper) {
                 GlobalConfig.background.videoWallpaperPaused = false;
                 root.restoreVideoWallpaper = false;
             }
 
-            if (root.onHyprland)
+            if (!ManagedRuntime.enabled && root.onHyprland)
                 Kwin.extras.message("reload");
             else
                 applyKwin(false);
 
             if (GlobalConfig.utilities.toasts.gameModeChanged)
                 Toaster.toast(qsTr("Game mode disabled"),
-                    root.onHyprland ? qsTr("Hyprland settings restored") : qsTr("Desktop effects restored"), "gamepad");
+                    ManagedRuntime.enabled ? qsTr("Restored video wallpaper; Nix-owned desktop effects are unchanged")
+                        : (root.onHyprland ? qsTr("Hyprland settings restored") : qsTr("Desktop effects restored")), "gamepad");
         }
     }
 
@@ -143,6 +149,8 @@ Singleton {
         path: `${Paths.cache}/gamemode-state`
         printErrors: false
         onLoaded: {
+            if (ManagedRuntime.enabled)
+                return;
             if (props.enabled)
                 return;
             if (root.onHyprland) {

@@ -133,7 +133,7 @@ Searcher {
     }
 
     function syncPlasmaWallpaper(imagePath: string): void {
-        if (!imagePath)
+        if (ManagedRuntime.enabled || !imagePath)
             return;
         const script = 'var allDesktops = desktops();' +
             'for (var i = 0; i < allDesktops.length; i++) {' +

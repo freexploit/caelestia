@@ -9,6 +9,7 @@ import qs.components
 import qs.components.controls
 import qs.components.effects
 import qs.services
+import qs.utils
 
 Item {
     id: root
@@ -77,6 +78,8 @@ Item {
                 Layout.fillWidth: true
                 Layout.bottomMargin: Tokens.spacing.small
                 text: {
+                    if (root.state === "managed")
+                        return ManagedRuntime.lifecycleInstructions;
                     if (root.state === "probing")
                         return qsTr("Still looking for the uninstaller. Try again in a moment.");
                     if (root.state === "script")

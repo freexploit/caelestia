@@ -19,6 +19,8 @@ Singleton {
     readonly property string activeOutputName: KWinActiveWindowBridge.activeOutputName
     readonly property string pendingFocusAddress: KWinActiveWindowBridge.pendingFocusAddress
     readonly property string highlightedAddress: KWinActiveWindowBridge.highlightedAddress
+    readonly property string currentActivity: KWinActiveWindowBridge.currentActivity
+    readonly property bool activityAvailable: KWinActiveWindowBridge.activityAvailable
     readonly property var workspaces: KWinWorkspaceState.workspaces || []
     readonly property int activeWsId: KWinWorkspaceState.activeId
     readonly property var activeByOutput: KWinWorkspaceState.activeByOutput || ({})
@@ -94,6 +96,30 @@ Singleton {
 
     function closeWindow(address: string): void {
         KWinActiveWindowBridge.closeWindow(address);
+    }
+
+    function isWindowEligible(address: string): bool {
+        // Read the authoritative view to keep bindings live on membership changes.
+        const view = root.windowList;
+        const activity = root.currentActivity;
+        return KWinActiveWindowBridge.isWindowEligible(address);
+    }
+
+    function windowState(): string {
+        const taskbars = {};
+        for (const [screen, dock] of Visibilities.docks) {
+            taskbars[screen] = dock.modelDataArray.map(entry => ({
+                id: entry.id,
+                windows: entry.toplevels.map(window => window.address)
+            }));
+        }
+        return JSON.stringify({
+            currentActivity: root.currentActivity,
+            activityAvailable: root.activityAvailable,
+            windows: root.windowList,
+            activeWindow: root.activeWindow,
+            taskbars: taskbars
+        });
     }
 
     function minimizeWindow(address: string): void {
@@ -528,6 +554,22 @@ Singleton {
     onWorkspacesChanged: root.refreshWindows()
 
     IpcHandler {
+        function windowState(): string {
+            return root.windowState();
+        }
+
+        function isWindowEligible(address: string): bool {
+            return root.isWindowEligible(address);
+        }
+
+        function focusWindow(address: string): void {
+            root.focusWindow(address);
+        }
+
+        function closeWindow(address: string): void {
+            root.closeWindow(address);
+        }
+
         function refreshDevices(): void {
             root.refreshDevices();
         }

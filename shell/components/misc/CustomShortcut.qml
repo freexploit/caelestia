@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland as Hypr
 import Caelestia.Services as Caelestia
+import qs.services
 
 Loader {
     id: root
@@ -14,7 +15,7 @@ Loader {
     signal pressed()
     signal released()
 
-    active: root.enabled
+    active: root.enabled && (!ManagedSession.managed || ManagedSession.surfaceActive)
 
     sourceComponent: Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE") ? hyprShortcut : kdeShortcut
 

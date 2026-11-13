@@ -17,12 +17,23 @@ namespace caelestia {
 WorkspaceTrackerEffect::WorkspaceTrackerEffect()
     : m_socket(new QLocalSocket(this))
 {
+#if CAELESTIA_KWIN_OUTPUT_DESKTOPS
     connect(KWin::effects, &KWin::EffectsHandler::desktopChanging,
             this, &WorkspaceTrackerEffect::onDesktopChanging);
-    connect(KWin::effects, &KWin::EffectsHandler::desktopChangingCancelled,
-            this, &WorkspaceTrackerEffect::onDesktopChangingCancelled);
     connect(KWin::effects, &KWin::EffectsHandler::desktopChanged,
             this, &WorkspaceTrackerEffect::onDesktopChanged);
+#else
+    connect(KWin::effects, &KWin::EffectsHandler::desktopChanging, this,
+            [this](KWin::VirtualDesktop* desktop, QPointF offset, KWin::EffectWindow* with) {
+                onDesktopChanging(desktop, offset, with, nullptr);
+            });
+    connect(KWin::effects, &KWin::EffectsHandler::desktopChanged, this,
+            [this](KWin::VirtualDesktop* oldDesktop, KWin::VirtualDesktop* desktop, KWin::EffectWindow* with) {
+                onDesktopChanged(oldDesktop, desktop, with, nullptr);
+            });
+#endif
+    connect(KWin::effects, &KWin::EffectsHandler::desktopChangingCancelled,
+            this, &WorkspaceTrackerEffect::onDesktopChangingCancelled);
 
     connect(m_socket, &QLocalSocket::disconnected, this, [this]() {
         qDebug() << "WorkspaceTracker: Socket disconnected, retrying...";
@@ -96,7 +107,11 @@ void WorkspaceTrackerEffect::SetDesktop(const QString& output, int desktop)
     const auto desktops = KWin::effects->desktops();
     for (KWin::VirtualDesktop* candidate : desktops) {
         if (candidate && static_cast<int>(candidate->x11DesktopNumber()) == desktop) {
+#if CAELESTIA_KWIN_OUTPUT_DESKTOPS
             KWin::effects->setCurrentDesktop(candidate, target);
+#else
+            KWin::effects->setCurrentDesktop(candidate);
+#endif
             return;
         }
     }
@@ -141,7 +156,12 @@ void WorkspaceTrackerEffect::sendFullState()
 {
     const auto outputs = KWin::effects->screens();
     for (KWin::LogicalOutput* output : outputs) {
-        if (KWin::VirtualDesktop* desktop = KWin::effects->currentDesktop(output)) {
+#if CAELESTIA_KWIN_OUTPUT_DESKTOPS
+        KWin::VirtualDesktop* desktop = KWin::effects->currentDesktop(output);
+#else
+        KWin::VirtualDesktop* desktop = KWin::effects->currentDesktop();
+#endif
+        if (desktop) {
             sendPayload(static_cast<int>(desktop->x11DesktopNumber()), 0.0f, 0.0f, output);
         }
     }

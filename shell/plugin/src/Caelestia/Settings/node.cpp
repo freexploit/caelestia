@@ -2,16 +2,20 @@
 
 namespace caelestia::settings {
 
-Node::Node(Node* fallback, QObject* parent, bool globalOnly)
+Node::Node(Node* fallback, QObject* parent, bool globalOnly, LayerScope scope)
     : QObject(parent)
+    , m_isRoot(scope != LayerScope::Inherit)
+    , m_monitorLayer(scope == LayerScope::Monitor ||
+                     (scope == LayerScope::Inherit &&
+                         (parentNode() ? parentNode()->isMonitorLayer() : fallback != nullptr)))
     , m_globalOnly(globalOnly || (parentNode() && parentNode()->m_globalOnly))
     , m_rootNode(parentNode() ? parentNode()->rootNode() : this)
     , m_fallbackNode(fallback)
     , m_writeOrigin(WriteOrigin::Qml)
     , m_internalRead(false)
     , m_batcher(m_rootNode == this ? new ChangeBatcher(this) : nullptr) {
-    // Overlays must not mirror the global layer: it is a one way read
-    if (fallback && !m_globalOnly)
+    // Monitor layers do not mirror global-only values; global defaults do.
+    if (fallback && (!m_globalOnly || !isMonitorLayer()))
         QObject::connect(fallback, &Node::optionChanged, this, &Node::onFallbackNotify);
 }
 
@@ -29,7 +33,7 @@ QString Node::pathFor(const QString& key) const {
 }
 
 Node* Node::parentNode() const {
-    return qobject_cast<Node*>(parent());
+    return m_isRoot ? nullptr : qobject_cast<Node*>(parent());
 }
 
 Node* Node::rootNode() const {
@@ -38,6 +42,10 @@ Node* Node::rootNode() const {
 
 Node* Node::fallbackNode() const {
     return m_fallbackNode;
+}
+
+bool Node::isMonitorLayer() const {
+    return m_monitorLayer;
 }
 
 void Node::detachFallback() {
@@ -106,15 +114,17 @@ bool Node::setValue(const QString& key, const QVariant& value) {
 }
 
 void Node::resetToDefaults() {
-    if (m_globalOnly && m_fallbackNode)
+    if (m_globalOnly && isMonitorLayer())
         return;
 
+    if (m_quarantine && writeOrigin() == WriteOrigin::QmlReset)
+        batcher()->dirty();
     m_quarantine.reset();
 
     for (const auto& desc : schema().descriptors()) {
         if (desc.isNode)
             value(desc.key).value<Node*>()->resetToDefaults();
-        else if (!desc.globalOnly() || !m_fallbackNode)
+        else if (!desc.globalOnly() || !isMonitorLayer())
             setValue(desc.key, m_fallbackNode ? m_fallbackNode->value(desc.key) : desc.defaultValue());
     }
 }
@@ -134,7 +144,7 @@ bool Node::rejectInvalidWrite(const QString& key, const QVariant& value) const {
 }
 
 void Node::warnGlobalRead(const QString& key) const {
-    if (!m_fallbackNode || m_rootNode->m_internalRead)
+    if (!isMonitorLayer() || m_rootNode->m_internalRead)
         return;
 
     qCWarning(lcSettings,
@@ -154,7 +164,7 @@ bool Node::rejectGlobalWrite(const QString& key) {
     const auto origin = m_rootNode->m_writeOrigin;
     const auto fromUser = origin == WriteOrigin::Qml || origin == WriteOrigin::QmlReset;
 
-    if ((!m_globalOnly && !desc->globalOnly()) || !fromUser || !m_fallbackNode)
+    if ((!m_globalOnly && !desc->globalOnly()) || !fromUser || !isMonitorLayer())
         return false;
 
     // Overlays cannot write the global layer, whatever the origin
@@ -182,7 +192,7 @@ void Node::warnGlobalSync(QList<Diagnostic>& diagnostics, const QString& path) {
 }
 
 bool Node::rejectGlobalSync(QList<Diagnostic>& diagnostics) const {
-    if (!m_globalOnly || !m_fallbackNode)
+    if (!m_globalOnly || !isMonitorLayer())
         return false;
 
     warnGlobalSync(diagnostics, path());
@@ -253,6 +263,10 @@ ChangeBatcher* Node::batcher() const {
     return m_rootNode->m_batcher;
 }
 
+WriteOrigin Node::writeOrigin() const {
+    return m_rootNode->m_writeOrigin;
+}
+
 QString Node::keyOf(const Node* child) const {
     for (const auto& desc : schema().descriptors()) {
         if (desc.isNode && child == value(desc.key).value<Node*>())
@@ -267,7 +281,7 @@ void Node::onFallbackNotify(const QString& key) {
         return;
 
     const auto* desc = schema().get(key);
-    if (desc && desc->globalOnly())
+    if (desc && desc->globalOnly() && isMonitorLayer())
         return;
 
     const WriteScope scope(this, WriteOrigin::Layer);

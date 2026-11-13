@@ -4,6 +4,17 @@
 
 This document catalogs known failure modes, error conditions, and edge cases discovered through analysis of the installer, shell build system, scripts, documentation, and runtime architecture of this port.
 
+**Nix/Home Manager installations:** the managed wrapper sets `CAELESTIA_MANAGED=1`.
+Installer, self-update, update checks/timers, login-screen configuration and uninstall
+actions are disabled, including Nexus actions. Update the Caelestia input in your flake
+and rebuild your Home Manager or NixOS configuration. To remove it, disable
+`programs.caelestia-kde.enable` and rebuild; writable overrides and baseline files are
+not deleted. Login/lock screens, KWin effects, Krohnkite and system dependencies belong
+in your declarative system/Plasma configuration. The imperative recovery commands in
+this guide describe non-managed installs; do not use them to override Nix ownership.
+Managed mode also leaves KWin's hot corners and any legacy screen-edge recovery file
+untouched; Caelestia does not acquire those session-global edges.
+
 ---
 
 ## Table of Contents
@@ -272,6 +283,34 @@ journalctl --user -u caelestia-shell.service | grep -c core-dump     # no new en
 ```
 
 ### 3.4 Colors Not Applying
+
+In managed mode it is intentional that only Caelestia's own palette and wallpaper
+change. Plasma/lockscreen wallpaper synchronization, KWin effect changes, and
+first-launch dependency/setup scripts do not run. Application theme targets, terminal
+escape sequences, custom templates and post-hooks default off, including hooks left
+by an earlier imperative install.
+
+External color integrations can be explicitly enabled in
+`$XDG_CONFIG_HOME/caelestia/cli.json` (normally `~/.config/caelestia/cli.json`), for example:
+
+```json
+{"theme":{"enableGtk":true,"enableKonsole":true}}
+```
+
+Alternatively the launcher can set
+`CAELESTIA_THEME_INTEGRATIONS=enableGtk,enableKonsole`. Explicit `false` values in
+`cli.json` take precedence over this environment default. Available keys are
+`enableKde`, `enableKvantum`, `enableQt`, `enableGtk`, `enableTerm`, `enableBtop`,
+`enableCava`, `enableDiscord`, `enableSpicetify`, `enableZed`, `enableFuzzel`,
+`enableVscode`, `enableRofi`, `enableFoot`, `enableKitty`, `enableStarship`, and
+`enableKonsole`. `theme.enableUserTemplates` explicitly enables custom template
+rendering; `theme.enableHooks` explicitly enables configured `theme.postHook` and
+`wallpaper.postHook` commands. Both flags can also be included in the environment
+list. These integrations change session-global application preferences, not isolated
+Activity themes. They cannot enable Caelestia's imperative installer or lifecycle
+actions. Enable only hooks you have reviewed, particularly old login-screen sync hooks.
+
+The following color troubleshooting describes the non-managed defaults:
 
 | Symptom | Fix |
 |---|---|

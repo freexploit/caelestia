@@ -207,6 +207,11 @@ if [[ "$STATUS_ONLY" -eq 1 ]]; then
     exit 0
 fi
 
+if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+    echo "Nix owns system integration. Configure Avahi and the Quick Share TCP port declaratively in NixOS and rebuild; runtime system setup is disabled." >&2
+    exit 1
+fi
+
 if [[ "$EUID" -ne 0 ]]; then
     echo "Opening the firewall and enabling Avahi needs root: run this through pkexec or sudo." >&2
     exit 1

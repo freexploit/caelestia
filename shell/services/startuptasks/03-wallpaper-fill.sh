@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+[[ "${CAELESTIA_MANAGED:-}" == "1" ]] && exit 0
+
 CONFIG_FILE="$HOME/.config/caelestia/shell.json"
 
 if [[ -f "$CONFIG_FILE" ]]; then

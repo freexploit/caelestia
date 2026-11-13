@@ -203,6 +203,7 @@ if("shell" IN_LIST ENABLE_MODULES)
     endfunction()
 
     file(GLOB CAELESTIA_BIN_FILES CONFIGURE_DEPENDS "${CAELESTIA_ROOT_DIR}/src/bin/*")
+    list(FILTER CAELESTIA_BIN_FILES EXCLUDE REGEX "\\.(cpp|hpp)$")
     if(NOT CAELESTIA_BIN_FILES)
         message(FATAL_ERROR "No CLI wrappers found in ${CAELESTIA_ROOT_DIR}/src/bin")
     endif()

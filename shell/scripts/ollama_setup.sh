@@ -82,6 +82,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+    echo "Nix owns dependencies. Configure services.ollama in your NixOS configuration and rebuild; runtime installation is disabled." >&2
+    exit 1
+fi
+
 as_root() {
     if [[ "$EUID" -eq 0 ]]; then
         "$@"

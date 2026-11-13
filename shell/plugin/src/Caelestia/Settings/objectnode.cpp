@@ -6,8 +6,8 @@
 
 namespace caelestia::settings {
 
-ObjectNode::ObjectNode(ObjectNode* fallback, QObject* parent, bool globalOnly)
-    : Node(fallback, parent, globalOnly) {}
+ObjectNode::ObjectNode(ObjectNode* fallback, QObject* parent, bool globalOnly, LayerScope scope)
+    : Node(fallback, parent, globalOnly, scope) {}
 
 void ObjectNode::resetOption(const QString& key) {
     const auto* desc = schema().get(key);
@@ -17,7 +17,7 @@ void ObjectNode::resetOption(const QString& key) {
         return;
     }
 
-    if (desc->isNode && (m_globalOnly || desc->globalOnly()) && fallbackNode()) {
+    if (desc->isNode && (m_globalOnly || desc->globalOnly()) && isMonitorLayer()) {
         qCWarning(lcSettings,
             "Attempted to reset global node %s, ignoring. "
             "This should not be used, reset global nodes from the global layer instead.",
@@ -137,7 +137,7 @@ QSet<QString> ObjectNode::loadFromJson(const QJsonObject& json, QList<Diagnostic
             continue;
         }
 
-        if ((m_globalOnly || desc->globalOnly()) && fallbackNode()) {
+        if ((m_globalOnly || desc->globalOnly()) && isMonitorLayer()) {
             warnGlobalSync(diagnostics, pathFor(key));
             SKIP;
         }
@@ -179,7 +179,7 @@ void ObjectNode::resetUnvisited(const QSet<QString>& visited) {
             continue;
         }
 
-        if ((m_globalOnly || desc.globalOnly()) && fallbackNode())
+        if ((m_globalOnly || desc.globalOnly()) && isMonitorLayer())
             continue;
 
         setValue(desc.key, fallbackNode() ? fallbackNode()->value(desc.key) : desc.defaultValue());

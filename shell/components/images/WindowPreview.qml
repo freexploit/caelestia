@@ -5,6 +5,7 @@ import QtQuick
 import Quickshell.Widgets
 import Caelestia.Config
 import Caelestia.Services
+import qs.services
 
 Item {
     id: root
@@ -15,13 +16,14 @@ Item {
     property url fallbackIcon: ""
     property real fallbackScale: 0.5
     property real sourceAspect: 16 / 9
+    readonly property bool eligible: Kwin.isWindowEligible(root.address)
 
     readonly property bool hasStream: stream.available
 
     WindowStream {
         id: stream
 
-        active: root.active && GlobalConfig.bar.livePreviews
+        active: root.active && root.eligible && GlobalConfig.bar.livePreviews
         address: root.address
     }
 
@@ -40,7 +42,7 @@ Item {
 
         anchors.centerIn: parent
         height: fitted
-        visible: root.hasStream
+        visible: root.eligible && root.hasStream
         width: fitted * root.sourceAspect
         z: 1
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+[[ "${CAELESTIA_MANAGED:-}" == "1" ]] && exit 0
+
 # The SF fonts were selectable once, so a config written back then still stores a family
 # that resolves to nothing now. Clearing just those values lands those installs on the
 # "Follow system" font option without touching a family the user still has.

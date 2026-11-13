@@ -16,6 +16,8 @@ class KWinActiveWindowBridge : public QObject {
     Q_PROPERTY(QVariantMap activeWindow READ activeWindow NOTIFY activeWindowChanged)
     Q_PROPERTY(QString activeOutputName READ activeOutputName WRITE setActiveOutputName NOTIFY activeOutputNameChanged)
     Q_PROPERTY(QVariantList windowList READ windowList NOTIFY windowListChanged)
+    Q_PROPERTY(QString currentActivity READ currentActivity NOTIFY currentActivityChanged)
+    Q_PROPERTY(bool activityAvailable READ activityAvailable NOTIFY currentActivityChanged)
     Q_PROPERTY(QString pendingFocusAddress READ pendingFocusAddress NOTIFY pendingFocusAddressChanged)
     Q_PROPERTY(QString highlightedAddress READ highlightedAddress NOTIFY highlightedAddressChanged)
     QML_ELEMENT
@@ -32,6 +34,9 @@ public:
     QVariantList windowList() const;
     QString pendingFocusAddress() const;
     QString highlightedAddress() const;
+    QString currentActivity() const;
+    bool activityAvailable() const;
+    Q_INVOKABLE bool isWindowEligible(const QString& address) const;
 
     Q_INVOKABLE QVariantList windowsForWorkspace(const QVariant& workspace, bool includeOnAllWorkspaces = true) const;
 
@@ -57,6 +62,7 @@ signals:
     void windowListChanged();
     void pendingFocusAddressChanged();
     void highlightedAddressChanged();
+    void currentActivityChanged();
 
 private slots:
     void onWindowAdded(const QString& uuid);
@@ -74,7 +80,6 @@ private:
 
     QVariantMap m_activeWindow;
     QVariantList m_windowList;
-    QHash<QString, QVariantMap> m_windowCache;
     QHash<QString, int> m_windowIndex; // uuid → index in m_windowList, O(1) lookup
     QString m_activeOutputName;
     QString m_pendingFocusAddress;

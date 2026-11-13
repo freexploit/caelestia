@@ -184,7 +184,7 @@ PageBase {
         if (ollamaInstallStatus !== "")
             return ollamaInstallStatus;
         if (ollamaInstalled && (ollamaService === "inactive" || ollamaService === "failed"))
-            return qsTr("Daemon not running - start it with: sudo systemctl start ollama");
+            return ManagedRuntime.enabled ? qsTr("Enable services.ollama in your NixOS configuration and rebuild") : qsTr("Daemon not running - start it with: sudo systemctl start ollama");
         return "";
     }
 
@@ -410,6 +410,10 @@ PageBase {
             // that stops halfway would otherwise execute whatever arrived, and nothing
             // would be left behind to look at.
             command: ["sh", "-c", `
+if [ "$CAELESTIA_MANAGED" = "1" ]; then
+    echo "Nix owns dependencies. Add Claude Code to your Nix/Home Manager packages and rebuild." >&2
+    exit 1
+fi
 f="$(mktemp)"
 if curl -fsSL --connect-timeout 10 --max-time 60 https://claude.ai/install.sh -o "$f"; then
     bash "$f"
@@ -537,10 +541,10 @@ exit $status`]
             visible: root.ollamaActionVisible
             last: true
             icon: "download"
-            label: qsTr("Download Ollama")
-            status: root.ollamaInstalling ? (root.ollamaInstallStatus || qsTr("Installing…")) : root.ollamaInstallStatus
+            label: ManagedRuntime.enabled ? qsTr("Manage Ollama in Nix") : qsTr("Download Ollama")
+            status: ManagedRuntime.enabled ? qsTr("Install and enable Ollama declaratively in your NixOS configuration") : (root.ollamaInstalling ? (root.ollamaInstallStatus || qsTr("Installing…")) : root.ollamaInstallStatus)
             onClicked: {
-                if (root.ollamaInstalling)
+                if (ManagedRuntime.enabled || root.ollamaInstalling)
                     return;
                 root.ollamaInstalling = true;
                 root.ollamaInstallStatus = qsTr("Installing…");
@@ -708,6 +712,8 @@ exit $status`]
             last: true
             icon: root.claudeInstalled && !UpdateChecker.claudeCodeHasUpdate ? "refresh" : "download"
             label: {
+                if (ManagedRuntime.enabled)
+                    return qsTr("Manage Claude Code in Nix");
                 if (!root.claudeInstalled)
                     return qsTr("Download Claude Code");
                 if (UpdateChecker.claudeCodeHasUpdate)
@@ -715,6 +721,8 @@ exit $status`]
                 return qsTr("Check for updates");
             }
             status: {
+                if (ManagedRuntime.enabled)
+                    return qsTr("Add Claude Code to your Nix/Home Manager packages and rebuild");
                 if (root.installing)
                     return root.installStatus || qsTr("Installing…");
                 if (UpdateChecker.claudeCodeChecking)
@@ -726,7 +734,7 @@ exit $status`]
                 return "";
             }
             onClicked: {
-                if (root.installing || UpdateChecker.claudeCodeChecking)
+                if (ManagedRuntime.enabled || root.installing || UpdateChecker.claudeCodeChecking)
                     return;
                 if (root.claudeInstalled && !UpdateChecker.claudeCodeHasUpdate) {
                     root.installStatus = "";

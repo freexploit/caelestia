@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+[[ "${CAELESTIA_MANAGED:-}" == "1" ]] && exit 0
+
 # Window classes Krohnkite leaves untiled. Krohnkite compares an entry against the
 # window class and the resource name exactly, ignoring case, so an app that can
 # report either the bare name or the reverse-DNS class gets both spellings. The

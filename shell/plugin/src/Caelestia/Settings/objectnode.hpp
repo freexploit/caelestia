@@ -12,7 +12,8 @@ class ObjectNode : public Node {
     Q_OBJECT
 
 public:
-    explicit ObjectNode(ObjectNode* fallback, QObject* parent = nullptr, bool globalOnly = false);
+    explicit ObjectNode(ObjectNode* fallback, QObject* parent = nullptr, bool globalOnly = false,
+        LayerScope scope = LayerScope::Inherit);
 
     Q_INVOKABLE void resetOption(const QString& key);
     Q_INVOKABLE Descriptor descriptorFor(const QString& key) const;

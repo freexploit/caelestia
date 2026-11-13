@@ -1,0 +1,13 @@
+{
+    "KPlugin": {
+        "Id": "org.caelestia.notification-presenter",
+        "Name": "Caelestia Notification Presentation Lease",
+        "Description": "Scoped notification presentation handoff without changing Plasma ownership or Do Not Disturb",
+        "Icon": "preferences-desktop-notification-bell",
+        "Category": "System Information",
+        "License": "GPL-3.0-or-later",
+        "Version": "1.0.0"
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

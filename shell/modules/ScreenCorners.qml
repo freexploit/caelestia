@@ -2,17 +2,20 @@ import QtQuick
 import Quickshell
 import Caelestia.Config
 import Caelestia.Services
+import qs.utils
 
 Scope {
     id: root
 
-    readonly property bool overviewOn: Config.overview.enabled
+    readonly property bool overviewOn: !ManagedRuntime.enabled && Config.overview.enabled
     readonly property bool wantTopLeft: overviewOn && Config.overview.hoverTopLeft
     readonly property bool wantTopRight: overviewOn && Config.overview.hoverTopRight
     readonly property bool wantBottomLeft: overviewOn && Config.overview.hoverBottomLeft
     readonly property bool wantBottomRight: overviewOn && Config.overview.hoverBottomRight
 
     function sync(corner: int, wanted: bool): void {
+        if (ManagedRuntime.enabled)
+            return;
         if (wanted)
             ScreenEdges.claim(corner);
         else

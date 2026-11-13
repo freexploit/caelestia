@@ -76,6 +76,15 @@ PageBase {
             Layout.preferredHeight: Tokens.spacing.small
         }
 
+        StyledText {
+            Layout.fillWidth: true
+            visible: ManagedRuntime.enabled
+            text: qsTr("Managed mode changes only Caelestia's palette by default. External theme targets, custom templates and hooks require explicit opt-in in cli.json or CAELESTIA_THEME_INTEGRATIONS. Such integrations affect the whole session, not just this Activity, and never enable installers.")
+            wrapMode: Text.WordWrap
+            color: Colours.palette.m3onSurfaceVariant
+            font: Tokens.font.body.medium
+        }
+
         SectionHeader {
             text: qsTr("Theme Automation")
         }

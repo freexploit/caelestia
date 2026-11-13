@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # caelestia-color - the color pipeline behind `caelestia wallpaper` and `caelestia scheme`.
 # State: $XDG_STATE_HOME/caelestia/{scheme.json,wallpaper/,theme/}.
-# Config: $XDG_CONFIG_HOME/caelestia/cli.json; an absent key is on.
+# Config: $XDG_CONFIG_HOME/caelestia/cli.json; external targets default off in managed mode.
 
 set -euo pipefail
 
@@ -90,6 +90,13 @@ Wallpaper
 
 The named schemes are the ones this port ships. `caelestia-color scheme list -n`
 prints them.
+
+With CAELESTIA_MANAGED=1 only Caelestia's palette changes by default. External
+integrations are session-global, not Activity-isolated. Opt in with explicit
+theme.enableKde/enableGtk/etc. true values in cli.json, or a comma-separated
+CAELESTIA_THEME_INTEGRATIONS list of those keys. enableHooks and
+enableUserTemplates opt in to post-hooks and custom templates respectively.
+These options never enable imperative installation or lifecycle operations.
 EOF
 }
 
@@ -984,9 +991,15 @@ load_config() {
     done < <(py config-dump "$CLI_CONFIG")
 }
 
-# Absent key means on, except where a target would take over a user's file.
+# Managed external integrations require an explicit opt-in, independent of presentation settings.
 enabled() {
     local key="theme.$1" default="${2:-true}" value
+    if [[ "${CAELESTIA_MANAGED:-}" == "1" ]]; then
+        default=false
+        case ",${CAELESTIA_THEME_INTEGRATIONS:-}," in
+            *,"$1",*) default=true ;;
+        esac
+    fi
     value="${CFG[$key]:-}"
     [[ -n "$value" ]] || value="$default"
     [[ "$value" == "true" ]]
@@ -1020,6 +1033,16 @@ enableFoot|foot-colors.ini|$CONFIG_HOME/foot/foot-colors.ini|true
 enableKitty|kitty-colors.conf|$CONFIG_HOME/kitty/themes/Matugen.conf|true
 enableStarship|starship-colors.toml|$CONFIG_HOME/starship.toml|false
 EOF
+}
+
+has_external_targets() {
+    local key templates output default
+    while IFS='|' read -r key templates output default; do
+        if enabled "$key" "$default"; then
+            return 0
+        fi
+    done < <(targets)
+    return 1
 }
 
 write_matugen_config() {
@@ -1086,6 +1109,9 @@ smart_variant() {
 # intensity matugen would not have produced by itself.
 render_decided() {
     local import_json="$1" meta="$2" fan_out="$3"
+    if [[ "$fan_out" != "true" ]] || ! has_external_targets; then
+        return 0
+    fi
     write_matugen_config "$FANOUT_CONFIG" "" "$fan_out"
     run_matugen "$FANOUT_CONFIG" json "$import_json" --import-json-string "$meta"
 }
@@ -1303,7 +1329,9 @@ apply_to_desktop() {
         spicetify apply >/dev/null 2>&1 || warn "spicetify apply failed"
     fi
 
-    py render-templates "$SCHEME_FILE" "$USER_TEMPLATES" "$THEME_DIR" "$mode" || warn "could not render the user templates"
+    if [[ "${CAELESTIA_MANAGED:-}" != "1" ]] || enabled enableUserTemplates false; then
+        py render-templates "$SCHEME_FILE" "$USER_TEMPLATES" "$THEME_DIR" "$mode" || warn "could not render the user templates"
+    fi
 }
 
 defer_to_desktop() {
@@ -1325,6 +1353,9 @@ run_hook() {
     local label="$1" command="$2"
     shift 2
     [[ -n "$command" ]] || return 0
+    if [[ "${CAELESTIA_MANAGED:-}" == "1" ]] && ! enabled enableHooks false; then
+        return 0
+    fi
 
     local output
     output="$(env "$@" \

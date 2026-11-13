@@ -3,6 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import Quickshell.Widgets
 import Caelestia.Config
 import Caelestia.Layouts
@@ -70,6 +71,29 @@ Item {
         const wins = Kwin.filterWindows(Kwin.windowsForWorkspace(wsId, false), null, root.screen.name);
         const filter = Visibilities.overviewAppFilter;
         return filter.length === 0 ? wins : wins.filter(w => Kwin.windowMatchesApp(w, filter));
+    }
+
+    IpcHandler {
+        target: "overview-windows-" + root.screen.name
+
+        function windowState(): string {
+            const pages = [];
+            for (let i = 0; i < listView.count; ++i) {
+                const page = listView.itemAtIndex(i);
+                pages.push({
+                    index: i,
+                    instantiated: !!page,
+                    workspace: page ? page.wsId : null,
+                    windows: page ? page.wsWindows.map(window => window.address) : null
+                });
+            }
+            return JSON.stringify({
+                screen: root.screen.name,
+                visible: root.visible,
+                currentWindows: root.currentWindows.map(window => window.address),
+                pages: pages
+            });
+        }
     }
 
     /// The screen containing a point in global coordinates, or null.

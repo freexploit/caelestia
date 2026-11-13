@@ -147,10 +147,13 @@ PageBase {
             first: true
             Layout.fillWidth: true
             text: qsTr("Sync with desktop wallpaper")
-            subtext: qsTr("Keep the lock screen wallpaper in sync with the desktop wallpaper")
+            subtext: ManagedRuntime.enabled ? qsTr("Lock screen configuration is owned by your Nix/Plasma configuration") : qsTr("Keep the lock screen wallpaper in sync with the desktop wallpaper")
             reset: ({ node: GlobalConfig.lock, setting: "syncWallpaper" })
-            checked: Config.lock.syncWallpaper
+            checked: !ManagedRuntime.enabled && Config.lock.syncWallpaper
+            enabled: !ManagedRuntime.enabled
             onToggled: {
+                if (ManagedRuntime.enabled)
+                    return;
                 GlobalConfig.lock.syncWallpaper = checked;
                 GlobalConfig.save();
                 if (checked && Wallpapers.current && !Images.isVideo(Wallpapers.current))
@@ -161,7 +164,7 @@ PageBase {
         }
 
         NavRow {
-            visible: !Config.lock.syncWallpaper
+            visible: !ManagedRuntime.enabled && !Config.lock.syncWallpaper
             Layout.fillWidth: true
             icon: "image"
             label: qsTr("Lock screen wallpaper")
@@ -175,6 +178,8 @@ PageBase {
                 filterLabel: qsTr("Image files")
                 filters: Images.validImageExtensions
                 onAccepted: path => {
+                    if (ManagedRuntime.enabled)
+                        return;
                     root.customWallpaperPath = path;
                     Quickshell.execDetached(["kwriteconfig6", "--file", "kscreenlockerrc", "--group", "Greeter", "--group", "Wallpaper", "--group", "org.kde.image", "--group", "General", "--key", "Image", "file://" + path]);
                 }

@@ -47,7 +47,7 @@ PageBase {
         return null;
     }
 
-    readonly property bool timelineSelectionEnabled: true
+    readonly property bool timelineSelectionEnabled: !ManagedRuntime.enabled
 
     readonly property string selectedVersionState: root.selectedEntry ? root.selectedEntry.state : ""
 
@@ -57,7 +57,7 @@ PageBase {
 
     readonly property bool selectionIsReinstall: root.timelineSelectionEnabled && root.selectedVersionState === "current"
 
-    readonly property bool primaryActionVisible: root.selectedVersionId !== "" || UpdateChecker.hasUpdate
+    readonly property bool primaryActionVisible: !ManagedRuntime.enabled && (root.selectedVersionId !== "" || UpdateChecker.hasUpdate)
 
     readonly property var timelineEntries: {
         if (UpdateChecker.versionSummaryMode && UpdateChecker.availableVersions.length > 0) {
@@ -127,7 +127,7 @@ PageBase {
     // Launch the updater in the user's terminal. The page only reports state now;
     // the updater owns its own output, progress and escalation prompts.
     function launchUpdater(): void {
-        if (UpdateChecker.checkingUpdates)
+        if (ManagedRuntime.enabled || UpdateChecker.checkingUpdates)
             return;
         const command = [UpdateChecker.currentBranch];
         if (root.selectedVersionId !== "")
@@ -215,6 +215,7 @@ PageBase {
                     Layout.alignment: Qt.AlignHCenter
                     fontStyle: Tokens.font.icon.extraLarge
                     text: {
+                        if (ManagedRuntime.enabled) return "deployed_code";
                         if (root.selectionIsRevert) return "history";
                         if (root.selectionIsReinstall) return "replay";
                         if (UpdateChecker.currentVersion === "unknown" && !UpdateChecker.hasUpdate) return "help";
@@ -237,6 +238,7 @@ PageBase {
                     maximumLineCount: 2
                     elide: Text.ElideRight
                     text: {
+                        if (ManagedRuntime.enabled) return qsTr("Managed by Nix/Home Manager");
                         if (root.selectionIsRevert) return qsTr("Restore to %1?").arg(root.selectedVersionId);
                         if (root.selectionIsReinstall) return qsTr("Reinstall %1?").arg(root.selectedVersionId);
                         if (root.selectionIsFuture && root.selectedVersionId !== "")
@@ -250,6 +252,15 @@ PageBase {
                             return qsTr("Installed version unknown");
                         return qsTr("You're up to date");
                     }
+                }
+
+                StyledText {
+                    Layout.fillWidth: true
+                    visible: ManagedRuntime.enabled
+                    text: ManagedRuntime.lifecycleInstructions
+                    wrapMode: Text.WordWrap
+                    color: Colours.palette.m3onSurfaceVariant
+                    font: Tokens.font.body.medium
                 }
 
                 StyledText {
@@ -291,6 +302,7 @@ PageBase {
 
                     IconTextButton {
                         id: secondaryActionButton
+                        visible: !ManagedRuntime.enabled
 
                         readonly property bool isChecking: UpdateChecker.checkingUpdates && root.selectedVersionId === ""
 
@@ -328,9 +340,10 @@ PageBase {
             }
         }
 
-        SectionHeader { text: qsTr("General") }
+        SectionHeader { visible: !ManagedRuntime.enabled; text: qsTr("General") }
 
         SelectRow {
+            visible: !ManagedRuntime.enabled
             first: true
             enabled: !root.branchDataLoading
             label: qsTr("Update channel")
@@ -349,7 +362,7 @@ PageBase {
         }
 
         ToggleRow {
-            visible: !root.branchDataLoading
+            visible: !ManagedRuntime.enabled && !root.branchDataLoading
             text: qsTr("Show Update Indicator")
             subtext: qsTr("Show a notification icon in the taskbar when updates are available")
             checked: BarWidgets.isEnabled(GlobalConfig.bar, "updateIndicator")
@@ -358,7 +371,7 @@ PageBase {
 
         NavRow {
             last: true
-            visible: !root.branchDataLoading
+            visible: !ManagedRuntime.enabled && !root.branchDataLoading
             icon: "folder"
             label: qsTr("Open Backup Folder")
             status: qsTr("View your previously backed-up configuration files")
@@ -401,7 +414,7 @@ PageBase {
         }
 
         SectionHeader {
-            visible: !root.branchDataLoading
+            visible: !ManagedRuntime.enabled && !root.branchDataLoading
             text: UpdateChecker.versionSummaryMode ? qsTr("Version History") : qsTr("Commit History")
         }
 
@@ -410,7 +423,7 @@ PageBase {
 
             readonly property real maxListHeight: 6 * timeline.rowHeight
 
-            visible: !root.branchDataLoading
+            visible: !ManagedRuntime.enabled && !root.branchDataLoading
             first: true
             last: true
             Layout.fillWidth: true
@@ -469,7 +482,7 @@ PageBase {
 
             // Only the first word is the program; the rest are its own arguments.
             command: ["bash", "-c", "command -v \"$1\" >/dev/null 2>&1", "--", GlobalConfig.general.apps.terminal[0] || ""]
-            running: true
+            running: !ManagedRuntime.enabled
             onExited: code => root.configuredTerminalAvailable = code === 0
         }
 

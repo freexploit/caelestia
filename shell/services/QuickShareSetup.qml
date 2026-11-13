@@ -4,6 +4,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Caelestia.Services.QuickShare
+import qs.utils
 
 /// The system half of Quick Share. A transfer arrives on the fixed port
 /// `QuickShareService.listenPort`, which has to be open, behind an mDNS advertisement
@@ -44,6 +45,8 @@ Singleton {
 
     /// For the Settings row this flow belongs to, which is the only place it is shown.
     readonly property string status: {
+        if (ManagedRuntime.enabled)
+            return qsTr("Configure Avahi and Quick Share's TCP port declaratively in NixOS and rebuild; runtime system setup is disabled");
         if (root.message !== "")
             return root.message;
         if (root.ready)
@@ -73,6 +76,11 @@ Singleton {
     /// Runs the helper as root, which is the only thing that enables Avahi and opens the
     /// port, and asks again afterwards.
     function run(): void {
+        if (ManagedRuntime.enabled) {
+            root.message = root.status;
+            root.reported();
+            return;
+        }
         if (root.busy)
             return;
 

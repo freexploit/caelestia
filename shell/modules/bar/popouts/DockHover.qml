@@ -16,6 +16,7 @@ StyledRect {
 
     required property PopoutState popouts
     property var model: popouts.dockModel
+    readonly property var eligibleToplevels: (root.model?.toplevels ?? []).filter(window => Kwin.isWindowEligible(window.address))
     readonly property string iconSource: model ? WinIcons.sourceFor(model.entry, model.appClass, model.iconName, model.pid ?? 0) : ""
     property MprisPlayer player: {
         if (!model) return null;
@@ -25,15 +26,11 @@ StyledRect {
     property real fontScale: 1.0
     property bool _isSidebarOpen: false
     readonly property int previewWidth: Math.round(Tokens.sizes.bar.windowPreviewSize * scaleOffset)
-    readonly property int cardWidth: (root.model && root.model.toplevels && root.model.toplevels.length > 1) ? Math.round(previewWidth * 0.55) : previewWidth
+    readonly property int cardWidth: root.eligibleToplevels.length > 1 ? Math.round(previewWidth * 0.55) : previewWidth
 
     function closeToplevel(address: string): void {
         Kwin.clearHighlight();
-        if (Kwin.windowList.length > 0) {
-            Kwin.closeWindow(address);
-        } else {
-            Kwin.dispatch(Kwin.usingLua ? `hl.dsp.window.close({ window = "address:0x${address}" })` : `closewindow address:0x${address}`);
-        }
+        Kwin.closeWindow(address);
 
         if (!root.model || !root.model.toplevels)
             return;
@@ -74,7 +71,7 @@ StyledRect {
         StyledRect {
             implicitWidth: fallbackLayout.implicitWidth + Tokens.padding.small * scaleOffset * 2
             implicitHeight: fallbackLayout.implicitHeight + Tokens.padding.small * scaleOffset * 2
-            visible: !root.model || !root.model.toplevels || root.model.toplevels.length === 0
+            visible: root.eligibleToplevels.length === 0
             radius: Tokens.rounding.small
             color: "transparent"
 
@@ -114,11 +111,11 @@ StyledRect {
         RowLayout {
             id: windowsRow
 
-            visible: root.model && root.model.toplevels && root.model.toplevels.length > 0
+            visible: root.eligibleToplevels.length > 0
             spacing: Tokens.spacing.medium
 
             Repeater {
-                model: root.model && root.model.toplevels ? root.model.toplevels : []
+                model: root.eligibleToplevels
                 delegate: StyledRect {
                     id: card
 
@@ -172,11 +169,7 @@ StyledRect {
                             previewTimer.stop();
                             Kwin.clearHighlight();
                             if (card.modelData.address) {
-                                if (Kwin.windowList.length > 0) {
-                                    Kwin.focusWindow(card.modelData.address);
-                                } else {
-                                    Kwin.dispatch(Kwin.usingLua ? `hl.dsp.focus({ window = "address:0x${card.modelData.address}" })` : `focuswindow address:0x${card.modelData.address}`);
-                                }
+                                Kwin.focusWindow(card.modelData.address);
                             }
                             root.popouts.hasCurrent = false;
                         }

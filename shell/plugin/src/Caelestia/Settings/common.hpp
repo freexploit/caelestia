@@ -22,6 +22,13 @@ enum class ExpectedType {
     Object,
 };
 
+// Inherit is for child nodes; file roots select Global or Monitor explicitly.
+enum class LayerScope {
+    Inherit,
+    Global,
+    Monitor,
+};
+
 enum class WriteOrigin {
     Init,
     File,
